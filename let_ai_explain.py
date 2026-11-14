@@ -35,6 +35,7 @@ AUTHORIZE_URL = AUTH_BASE + "/api/accounts/authorize"
 TOKEN_URL = AUTH_BASE + "/api/accounts/oauth/token"
 RESOURCE = "https://api.openai.com/v1"
 API = "https://api.openai.com/v1"
+IMAGE_DATA_URL = re.compile(r"data:image/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/=]+\Z")
 SCOPES = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct"
 PLAN_SCOPE = "chatgpt.tokens.use.direct"
 HOST = "127.0.0.1"
@@ -626,9 +627,18 @@ class Handler(BaseHTTPRequestHandler):
         model = (body.get("model") or "").strip()
         if not model:
             raise AppError("no_model", "Choose a model first.")
+        content = body.get("input") or ""
+        # Optional small images (the image-search check): inline data URLs only, so OpenAI never fetches a URL.
+        images = body.get("images") or []
+        if images:
+            if not isinstance(images, list) or len(images) > 6 or not all(
+                    isinstance(u, str) and len(u) < 400_000 and IMAGE_DATA_URL.match(u) for u in images):
+                raise AppError("bad_images", "Images must be up to 6 small PNG, JPEG, GIF or WebP data URLs.", 400)
+            content = [{"type": "input_text", "text": str(content)}] + [
+                {"type": "input_image", "image_url": u, "detail": "low"} for u in images]
         payload = json.dumps({
             "model": model, "instructions": body.get("instructions") or "",
-            "input": [{"role": "user", "content": body.get("input") or ""}],
+            "input": [{"role": "user", "content": content}],
             "store": False, "stream": True,
         }).encode()
         upstream = None

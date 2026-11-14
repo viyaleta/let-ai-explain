@@ -650,12 +650,12 @@ $('#signout').addEventListener('click', async () => {
 });
 
 // Ask the model through the local server; streams text and resolves only on a completed response.
-async function callLLM({ system, user, signal, onText }) {
+async function callLLM({ system, user, signal, onText, images }) {
   if (!session.connected) throw new AppError('not_signed_in');
   if (!session.sharing) throw new AppError('plan_usage_not_enabled');
   const r = await api('/api/respond', {
     method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model: currentModel(), instructions: system, input: user })
+    body: JSON.stringify({ model: currentModel(), instructions: system, input: user, ...(images?.length ? { images } : {}) })
   });
   if (!r.ok) throw await apiError(r);
   const reader = r.body.getReader(), dec = new TextDecoder();
@@ -882,7 +882,7 @@ const REPAIR_SYSTEM = `You fix broken formatting snippets. Input is a JSON array
 - "mermaid": Mermaid code. Simplify if needed and wrap every node label in double quotes.
 - "svg": SVG markup.
 - "plotly": a Plotly JSON spec {"data": [...], "layout": {...}}. Return valid plain JSON with no JavaScript. A trace may use "formula" (in x, with + - * / ^, pi, e, sin, cos, exp, ln, sqrt, abs…) and "xrange": [a, b] instead of points.
-- "image-search": JSON {"query": "...", "count": n} for a Wikimedia Commons image search that found nothing usable. Return the same JSON shape with a different query: shorter, more common terms, or the subject's most standard name.
+- "image-search": JSON {"query": "...", "count": n} for an image search that found nothing usable. Return the same JSON shape with a different English query: shorter, more common terms, or the subject's most standard name. If a real image is unlikely to exist, or the error says the images found had labels in another language, return instead a complete \`\`\`mermaid, \`\`\`svg or \`\`\`plotly fenced block that shows the same idea.
 - "ascii": a diagram drawn with ASCII or box-drawing characters. Convert it to Mermaid code with the same structure, wrapping every node label in double quotes. Return only the Mermaid code.
 Return ONLY a JSON array of {id, fixed}: corrected source with the same meaning. If an item can't be fixed, return "fixed": "" to drop it. No prose, no code fences.`;
 
@@ -1232,35 +1232,149 @@ const chartIO = new IntersectionObserver(entries => {
 }, { rootMargin: '200px' });
 function redrawCharts() { if (window.Plotly) $$('figure.chart[data-drawn]').forEach(paintChart); }
 
-/* Wikimedia Commons image search */
-const commonsCache = new Map();
-const QUERY_STOP = new Set(['the', 'and', 'for', 'with', 'from', 'image', 'photo', 'picture']);
+/* Image search: English Wikipedia's articles first, then Commons search. Candidates are filtered by
+   language from their metadata, then (when the model takes images) checked visually in one quick call,
+   so the reader never sees an image with labels in another language. */
+const READER_LANG = String(navigator.language || 'en').toLowerCase().split('-')[0] || 'en';
+const langName = c => { try { return new Intl.DisplayNames(['en'], { type: 'language' }).of(c) || c; } catch { return c; } };
+const commonsCache = new Map(), pickCache = new Map();
+const QUERY_STOP = new Set(['the', 'and', 'for', 'with', 'from', 'image', 'photo', 'picture', 'diagram', 'map']);
 const COMMONS_MIME = new Set(['image/png', 'image/jpeg', 'image/svg+xml', 'image/gif']);
 const htmlText = html => squash(new DOMParser().parseFromString(String(html || ''), 'text/html').body.textContent);
-async function searchCommons(query, count) {
-  const key = query.toLowerCase() + '|' + count;
-  if (commonsCache.has(key)) return commonsCache.get(key);
-  const qs = new URLSearchParams({ action: 'query', format: 'json', formatversion: '2', generator: 'search', gsrnamespace: '6',
-    gsrsearch: `${query} filetype:bitmap|drawing`, gsrlimit: '8', prop: 'imageinfo', iiprop: 'url|extmetadata|mime', iiurlwidth: '900', origin: '*' });
-  const j = await (await fetch('https://commons.wikimedia.org/w/api.php?' + qs, { signal: AbortSignal.timeout(10000) })).json();
-  const words = query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 2 && !QUERY_STOP.has(w));
-  const out = (j.query?.pages || []).map(pg => {
-    const ii = pg.imageinfo?.[0];
-    if (!ii?.thumburl || !COMMONS_MIME.has(ii.mime)) return null;
-    const meta = ii.extmetadata || {};
-    const title = String(pg.title || '').replace(/^File:/, '').replace(/\.\w+$/, '').replace(/_/g, ' ');
-    const desc = htmlText(meta.ImageDescription?.value) || htmlText(meta.ObjectName?.value) || title;
-    const hay = (title + ' ' + desc).toLowerCase();
-    return {
-      thumb: ii.thumburl, full: /\/\d+px-/.test(ii.thumburl) ? ii.thumburl.replace(/\/\d+px-/, '/1280px-') : ii.thumburl,
-      page: ii.descriptionurl, caption: truncate(desc, 200),
-      artist: truncate(htmlText(meta.Artist?.value), 80) || 'Unknown author',
-      license: htmlText(meta.LicenseShortName?.value) || 'see file page',
-      score: words.filter(w => hay.includes(w)).length, index: pg.index ?? 99
-    };
-  }).filter(Boolean).sort((a, b) => b.score - a.score || a.index - b.index).slice(0, count);
-  commonsCache.set(key, out);
+const queryWords = q => q.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 2 && !QUERY_STOP.has(w));
+// Article furniture, not content.
+const JUNK_FILE = /icon|flag|logo|symbol|padlock|ambox|question[_ ]book|disambig|portal|stub|nuvola|crystal[_ ]clear|oojs|edit-clear|red[_ ]pencil|speaker|sound|wiki(?:pedia|media|source|quote|data|books|news|versity|voyage)|\.(?:ogg|oga|ogv|webm|mid|pdf|djvu|tiff?|stl)$/i;
+// A language code as a filename marker: "Map-uk.png", "Map_ru.svg", "Map (de).png", "Map fr.svg", "Map-es-2.png".
+const LANG_CODES = 'uk|ru|de|fr|es|pt|pl|nl|sv|cs|hu|ro|bg|sr|hr|tr|ar|fa|zh|ja|ko|eu|gl|fi|nb|lt|lv|sk|sl|ka|hy|vi|th|mk|sq|az|kk|uz|it|ca|el|he|hi|id|en';
+const LANG_MARK = new RegExp(`(?:[-_ .](${LANG_CODES})\\.\\w+$|\\((${LANG_CODES})\\)|-(${LANG_CODES})-)`);
+const foreignMarker = file => { const m = LANG_MARK.exec(file); const c = m && (m[1] || m[2] || m[3]); return !!c && c !== READER_LANG; };
+function mostlyNonLatin(t) {
+  const letters = String(t || '').match(/\p{L}/gu) || [];
+  if (letters.length < 4) return false;
+  return (String(t).match(/\p{Script=Latin}/gu) || []).length / letters.length < 0.5;
+}
+const langUsable = c => !foreignMarker(c.file) && (READER_LANG !== 'en' || (!mostlyNonLatin(c.title) && !mostlyNonLatin(c.desc)));
+
+function toCandidate(pg, words, extra = {}) {
+  const ii = pg.imageinfo?.[0];
+  if (!ii?.thumburl || !COMMONS_MIME.has(ii.mime)) return null;
+  if ((ii.width && ii.width < 200) || (ii.height && ii.height < 200)) return null;
+  const file = String(pg.title || '').replace(/^File:/, '');
+  const meta = ii.extmetadata || {};
+  const title = file.replace(/\.\w+$/, '').replace(/_/g, ' ');
+  const desc = htmlText(meta.ImageDescription?.value) || htmlText(meta.ObjectName?.value) || title;
+  const hay = (title + ' ' + desc).toLowerCase();
+  return {
+    file, title, desc,
+    thumb: ii.thumburl, full: /\/\d+px-/.test(ii.thumburl) ? ii.thumburl.replace(/\/\d+px-/, '/1280px-') : ii.thumburl,
+    page: ii.descriptionurl, caption: truncate(desc, 200),
+    artist: truncate(htmlText(meta.Artist?.value), 80) || 'Unknown author',
+    license: htmlText(meta.LicenseShortName?.value) || 'see file page',
+    score: words.filter(w => hay.includes(w)).length, rank: 99, index: pg.index ?? 99, ...extra
+  };
+}
+const commonsApi = async params => (await fetch('https://commons.wikimedia.org/w/api.php?' + new URLSearchParams({
+  action: 'query', format: 'json', formatversion: '2', origin: '*', prop: 'imageinfo',
+  iiprop: 'url|extmetadata|mime|size', iiurlwidth: '900', iiextmetadatalanguage: READER_LANG, ...params
+}), { signal: AbortSignal.timeout(10000) })).json();
+// Commons file info for exact file names (files used on Wikipedia, or a saved pick). Local non-free files aren't on Commons and drop out.
+async function commonsFiles(names, words = []) {
+  if (!names.length) return [];
+  const j = await commonsApi({ titles: names.slice(0, 50).map(n => 'File:' + n.replace(/^File:/i, '')).join('|') });
+  const byName = new Map((j.query?.pages || []).map(pg => [String(pg.title || '').replace(/^File:/, ''), pg]));
+  return names.map(n => byName.get(n.replace(/^File:/i, '').replace(/_/g, ' '))).filter(Boolean).map(pg => toCandidate(pg, words));
+}
+// Files used in the top 3 English Wikipedia articles for the query, lead image first.
+async function wikipediaFiles(query) {
+  const qs = new URLSearchParams({ action: 'query', format: 'json', formatversion: '2', origin: '*', generator: 'search',
+    gsrsearch: query, gsrnamespace: '0', gsrlimit: '3', prop: 'pageimages|images', piprop: 'name', imlimit: 'max' });
+  const j = await (await fetch('https://en.wikipedia.org/w/api.php?' + qs, { signal: AbortSignal.timeout(10000) })).json();
+  const out = new Map(); // file name → { rank: article order, lead: is the article's main image }
+  (j.query?.pages || []).sort((a, b) => (a.index ?? 99) - (b.index ?? 99)).forEach((pg, rank) => {
+    for (const t of [pg.pageimage && 'File:' + pg.pageimage, ...(pg.images || []).map(i => i.title)]) {
+      const name = String(t || '').replace(/^File:/i, '').replace(/_/g, ' ');
+      if (name && !JUNK_FILE.test(name) && !out.has(name)) out.set(name, { rank, lead: !!pg.pageimage && t === 'File:' + pg.pageimage });
+    }
+  });
   return out;
+}
+async function imageCandidates(query) {
+  const key = query.toLowerCase();
+  if (commonsCache.has(key)) return commonsCache.get(key);
+  const words = queryWords(query);
+  let cands = [];
+  try {
+    const files = await wikipediaFiles(query);
+    // Articles list their files alphabetically; look up lead images and files named after the query first.
+    const hits = n => words.filter(w => n.toLowerCase().includes(w)).length;
+    const names = [...files.keys()].sort((a, b) => files.get(b).lead - files.get(a).lead || hits(b) - hits(a) || files.get(a).rank - files.get(b).rank).slice(0, 50);
+    cands = (await commonsFiles(names, words)).filter(Boolean).map(c => ({ ...c, rank: files.get(c.file)?.rank ?? 9, lead: !!files.get(c.file)?.lead, wiki: true }));
+  } catch (e) { console.warn('Wikipedia image lookup failed', e); }
+  cands = cands.filter(langUsable);
+  if (cands.length < 3) {
+    const j = await commonsApi({ generator: 'search', gsrnamespace: '6', gsrsearch: `${query} filetype:bitmap|drawing`, gsrlimit: '12' });
+    const seen = new Set(cands.map(c => c.file));
+    cands.push(...(j.query?.pages || []).map(pg => toCandidate(pg, words)).filter(c => c && !seen.has(c.file) && langUsable(c)));
+  }
+  // Files that name the query's words first; then article lead images, Wikipedia before Commons search, then article and search order.
+  cands.sort((a, b) => b.score - a.score || (b.lead ? 1 : 0) - (a.lead ? 1 : 0) || (b.wiki ? 1 : 0) - (a.wiki ? 1 : 0) || a.rank - b.rank || a.index - b.index);
+  commonsCache.set(key, cands);
+  return cands;
+}
+
+// A small JPEG data URL of a thumbnail, for the model to look at. Null if it won't load.
+function thumbData(src) {
+  return new Promise(res => {
+    const img = new Image(), t = setTimeout(() => res(null), 10000);
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      clearTimeout(t);
+      try {
+        const k = Math.min(1, 512 / Math.max(img.naturalWidth, img.naturalHeight));
+        const c = h('canvas'); c.width = Math.max(1, Math.round(img.naturalWidth * k)); c.height = Math.max(1, Math.round(img.naturalHeight * k));
+        const g = c.getContext('2d'); g.fillStyle = '#fff'; g.fillRect(0, 0, c.width, c.height); g.drawImage(img, 0, 0, c.width, c.height);
+        res(c.toDataURL('image/jpeg', 0.82));
+      } catch { res(null); }
+    };
+    img.onerror = () => { clearTimeout(t); res(null); };
+    img.src = src;
+  });
+}
+const IMAGE_CHECK_SYSTEM = `You check candidate pictures for an explanation a reader is studying. The images are attached in order, index 0 first. For each one decide:
+- text_language: the ISO 639-1 code of the language of the words or labels in the image, or "none" if it has no readable words (numbers, units, single letters and the artist's signature don't count).
+- relevant: true only if it clearly shows what the QUERY and CONTEXT are about.
+- clear: true if it's sharp and readable at about 600px wide, not cluttered, tiny or mostly decorative.
+Reply with only a JSON array, one object per image: [{"index": 0, "text_language": "en", "relevant": true, "clear": true}]`;
+let visionOff = false; // set once the model refuses image input; then only the metadata filter applies
+// The passing candidates of one batch, in order. Null means the check couldn't run.
+async function checkImages(batch, query, context, signal) {
+  const data = await Promise.all(batch.map(c => thumbData(c.thumb)));
+  const shown = batch.filter((_, i) => data[i]), images = data.filter(Boolean);
+  if (!images.length) return [];
+  const user = `QUERY: ${query}\nCONTEXT: ${truncate(context || '(none)', 600)}\nREADER LANGUAGE: ${langName(READER_LANG)} (${READER_LANG})\n${images.length} image${images.length > 1 ? 's' : ''} attached, index 0 to ${images.length - 1}.`;
+  let out;
+  try { out = await callLLM({ system: IMAGE_CHECK_SYSTEM, user, images, signal }); }
+  catch (e) { if (e?.name === 'AbortError') throw e; console.warn('Image check skipped', e); visionOff = true; return null; }
+  const verdicts = parseJsonArray(out).filter(v => v && Number.isInteger(+v.index) && shown[+v.index]);
+  if (!verdicts.length) return null;
+  const langOk = l => { l = String(l || 'none').toLowerCase(); return l === 'none' || l.split(/[-_]/)[0] === READER_LANG; };
+  return verdicts.filter(v => v.relevant === true && v.clear === true && langOk(v.text_language)).map(v => shown[+v.index]);
+}
+// Up to `count` images for an image-search block: checked by the model when `vision` is on (fresh answers),
+// otherwise the best by metadata (reopening from History never calls the model).
+async function pickImages(query, count, { context = '', vision = false, signal } = {}) {
+  const key = [query.toLowerCase(), count, context, vision && !visionOff].join('|');
+  if (pickCache.has(key)) return pickCache.get(key);
+  const cands = await imageCandidates(query);
+  let picks = [];
+  if (!vision || visionOff) picks = cands.slice(0, count);
+  else for (let start = 0; start < 6 && start < cands.length && picks.length < count; start += 3) {
+    const passed = await checkImages(cands.slice(start, start + 3), query, context, signal);
+    if (passed === null) { picks = cands.slice(start, start + count); break; }
+    picks.push(...passed.slice(0, count - picks.length));
+  }
+  pickCache.set(key, picks);
+  return picks;
 }
 function commonsFigure(r) {
   const img = h('img', { src: r.thumb, alt: r.caption });
@@ -1271,7 +1385,8 @@ function commonsFigure(r) {
 // Box-drawing, arrows and the common triangle pointers.
 const ASCII_ART = /[─-╿←-⇿▲►▼◄]/;
 
-async function renderInto(md, root) {
+// opts: context (what the reader asked about), vision (let the model check images), signal, picks (chosen images, filled in).
+async function renderInto(md, root, opts = {}) {
   const errors = [];
   const { text, math, fences } = protect(md);
   root.innerHTML = DOMPurify.sanitize(marked.parse(text, { gfm: true }), { ADD_TAGS: ['details', 'summary'] });
@@ -1305,18 +1420,18 @@ async function renderInto(md, root) {
       pre.remove(); // parsed by extractNext / extractRefs; never shown as content
     } else if (lang === 'recap') {
       const body = h('div', { class: 'recap-body' });
-      errors.push(...await renderInto(src.trim(), body));
+      errors.push(...await renderInto(src.trim(), body, opts));
       pre.replaceWith(h('aside', { class: 'recap' }, h('p', { class: 'recap-label', text: 'The core idea' }), body));
     } else if (lang === 'think') {
       // Question, then a line of only "---", then the answer. No separator: whole block is the question.
       const [qSrc, ...rest] = src.split(/^[ \t]*---[ \t]*$/m);
       const aSrc = rest.join('\n---\n').trim();
       const q = h('div', { class: 'think-q' });
-      errors.push(...await renderInto(qSrc.trim() || src.trim(), q));
+      errors.push(...await renderInto(qSrc.trim() || src.trim(), q, opts));
       const box = h('aside', { class: 'think' }, h('p', { class: 'think-label', text: 'Think about it' }), q);
       if (aSrc) {
         const a = h('div', { class: 'think-a' });
-        errors.push(...await renderInto(aSrc, a));
+        errors.push(...await renderInto(aSrc, a, opts));
         box.append(h('details', {}, h('summary', { text: 'Show answer' }), a));
       }
       pre.replaceWith(box);
@@ -1337,16 +1452,25 @@ async function renderInto(md, root) {
       } catch (e) { errors.push({ kind: 'plotly', source: f?.raw, body: src, error: errText(e) }); markBroken(fig, src, 'This chart couldn’t be drawn.'); }
     } else if (lang === 'image-search') {
       const holder = h('div', { class: 'img-search' }); pre.replaceWith(holder);
-      let q = '', count = 1, why = '', figs = [];
-      try { const spec = JSON.parse(src); q = squash(spec?.query); count = Math.min(3, Math.max(1, parseInt(spec?.count, 10) || 1)); } catch {}
-      if (!q) why = 'Block is not JSON with a "query" string';
+      let q = '', count = 1, files = [], why = '', figs = [];
+      try {
+        const spec = JSON.parse(src); q = squash(spec?.query); count = Math.min(3, Math.max(1, parseInt(spec?.count, 10) || 1));
+        if (Array.isArray(spec?.files)) files = spec.files.filter(x => typeof x === 'string' && x.trim()).slice(0, 3);
+      } catch {}
+      if (!q && !files.length) why = 'Block is not JSON with a "query" string';
       else {
         try {
-          figs = (await searchCommons(q, count)).map(commonsFigure);
+          // "files": the images already chosen for this block (saved with the explanation), reused as is.
+          const picked = files.length ? (await commonsFiles(files)).filter(Boolean)
+            : await pickImages(q, count, { context: opts.context, vision: !!opts.vision, signal: opts.signal });
+          figs = picked.map(r => { const fg = commonsFigure(r); fg.dataset.file = r.file; return fg; });
           holder.append(...figs);
           await Promise.all(figs.map(fg => checkImage(fg.querySelector('img'))).filter(Boolean));
           figs = figs.filter(fg => fg.querySelector('img') || (fg.remove(), false));
-          if (!figs.length) why = `No usable Wikimedia Commons images for "${q}"`;
+          if (!figs.length) why = `No suitable image for "${q}" on Wikipedia or Wikimedia Commons (none found, or the ones found had labels in another language, weren't relevant or weren't clear)`;
+          else if (!files.length && f?.raw && opts.picks) opts.picks.push({ raw: f.raw,
+            block: '```image-search\n' + JSON.stringify({ query: q, count, files: figs.map(fg => fg.dataset.file) }) + '\n```' });
+          figs.forEach(fg => delete fg.dataset.file);
         } catch (e) { why = 'Image search failed: ' + errText(e); }
       }
       // Shown only if the repair pass can't find a better query.
@@ -1405,6 +1529,7 @@ async function repair(md, errors, signal) {
     let rep = f.fixed.trim();
     if (!rep && e.kind === 'ascii') continue;
     if (rep && e.kind === 'math') { if (!/^(\$|\\\(|\\\[)/.test(rep)) rep = e.display ? `$$${rep}$$` : `$${rep}$`; }
+    else if (rep && e.kind === 'image-search' && /^```(mermaid|svg|plotly)[ \t]*\n[\s\S]*```$/.test(rep)) { /* a drawn visual instead */ }
     else if (rep) rep = '```' + (e.kind === 'ascii' ? 'mermaid' : e.kind) + '\n' + rep.replace(/^```[\w-]*\n?/, '').replace(/```$/, '').trim() + '\n```';
     md = md.split(e.source).join(rep);
   }
@@ -1440,17 +1565,20 @@ function labelOverlaps(root) {
   return out;
 }
 // Render offscreen, check everything, repair once, then hand back a finished node.
-async function prepare(md, onStatus, signal) {
-  let root = document.createElement('div');
-  let errors = await renderInto(md, root);
+async function prepare(md, onStatus, signal, context = '') {
+  const opts = () => ({ signal, context, vision: true, picks: [] });
+  let root = document.createElement('div'), o = opts();
+  let errors = await renderInto(md, root, o);
   errors.push(...labelOverlaps(root));
   if (errors.length) {
     onStatus?.('Fixing formatting…');
     try {
       const fixed = await repair(md, errors, signal);
-      if (fixed !== md) { md = fixed; root = document.createElement('div'); errors = await renderInto(md, root); }
+      if (fixed !== md) { md = fixed; root = document.createElement('div'); o = opts(); errors = await renderInto(md, root, o); }
     } catch (e) { console.warn('Repair skipped', e); }
   }
+  // Save which images were chosen, so reopening shows the same ones without searching or checking again.
+  for (const p of o.picks) md = md.split(p.raw).join(p.block);
   return { md, root, errors };
 }
 // Pull the ```next directions out of a reply. Missing or invalid: no chips, just the general button.
@@ -1783,7 +1911,7 @@ async function explain(input) {
     const { md: withRefs, next } = extractNext(cleanMain(raw));
     const { md: body, refs: rawRefs } = extractRefs(withRefs);
     const [{ md: prepped, root }, cites] = await Promise.all([
-      prepare(body, m => my === reqSeq && setStatus(m), signal),
+      prepare(body, m => my === reqSeq && setStatus(m), signal, truncate(input, 300)),
       resolveRefs(body, rawRefs, { source })]);
     if (my !== reqSeq) return;
     if (signal.aborted) throw new DOMException('Stopped', 'AbortError');
@@ -1868,7 +1996,7 @@ async function goDeeper(direction) {
     const { md: withRefs, next } = extractNext(cleanMain(raw).replace(/^# .*\n+/, ''));
     const { md: body, refs: rawRefs } = extractRefs(withRefs);
     const [{ md, root }, cites] = await Promise.all([
-      prepare(body, m => live() && deeperStatus(m), signal),
+      prepare(body, m => live() && deeperStatus(m), signal, `${st.title}: ${direction || 'next layer'}`),
       resolveRefs(body, rawRefs, { existing: st.refs })]);
     if (!live()) throw new DOMException('Stopped', 'AbortError');
     linkCitations(root, cites);
@@ -2046,7 +2174,7 @@ async function addNote(p, question, mode = question ? 'ask' : 'explain') {
       user: contextMessage(p, question ? `QUESTION: ${question}` : 'TASK: Explain the highlighted text.'),
       signal
     });
-    const { md, root } = await prepare(squash(raw) ? raw.trim() : '_No answer returned._', null, signal);
+    const { md, root } = await prepare(squash(raw) ? raw.trim() : '_No answer returned._', null, signal, question ? `${question} (about: ${p.text})` : p.text);
     ab.replaceChildren(...root.childNodes);
     ab.classList.toggle('wide', !!ab.querySelector('figure, .img-missing'));
     st.notes.push({ quote: p.text, question, answer: md, blockId, node: ab });
@@ -2070,7 +2198,7 @@ async function visualizeNote(p) {
   try {
     const raw = await callLLM({ system: withLevel(VISUALIZE_SYSTEM, 'side'), user: contextMessage(p, 'TASK: Visualize the highlighted text.'), signal });
     const text = raw.trim();
-    const { md, root } = /^NO_VISUAL\b/.test(text) || !squash(text) ? { md: '', root: h('div') } : await prepare(text, null, signal);
+    const { md, root } = /^NO_VISUAL\b/.test(text) || !squash(text) ? { md: '', root: h('div') } : await prepare(text, null, signal, p.text);
     // Validation, repair, image checks and the ASCII guard ran in prepare(); keep only a real visual.
     if (!hasVisual(root)) {
       ab.classList.remove('wide');
@@ -2119,7 +2247,7 @@ async function askFollowup(question) {
   fuBusy = true; syncFollowup();
   try {
     const raw = await callLLM({ system: withLevel(FOLLOWUP_SYSTEM, 'side'), user: contextMessage(null, `FOLLOW-UP QUESTION: ${question}`, { recent: 6 }), signal });
-    const { md, root } = await prepare(squash(raw) ? raw.trim() : '_No answer returned._', null, signal);
+    const { md, root } = await prepare(squash(raw) ? raw.trim() : '_No answer returned._', null, signal, question);
     ab.replaceChildren(...root.childNodes);
     ab.classList.toggle('wide', !!ab.querySelector('figure, .img-missing'));
     st.notes.push({ quote: null, question, answer: md, blockId: null, node: ab });
@@ -2156,7 +2284,7 @@ async function elaborate(p) {
   p.block.after(box);
   try {
     const raw = await callLLM({ system: withLevel(ELAB_SYSTEM, 'side'), user: contextMessage(p, 'TASK: Elaborate on the highlighted text.'), signal });
-    const { md, root } = await prepare(raw.trim().replace(/^#{1,2}\s.*\n/, ''), null, signal);
+    const { md, root } = await prepare(raw.trim().replace(/^#{1,2}\s.*\n/, ''), null, signal, p.text);
     body.replaceChildren(...root.childNodes);
     assignBlockIds();
     if (after && box.isConnected) { st.elabs.push({ after, quote: p.text, md, box }); if (st === state) scheduleSave(); }
