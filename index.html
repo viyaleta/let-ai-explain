@@ -51,7 +51,7 @@ button{font:inherit;color:inherit;cursor:pointer}
 /* Header */
 header.top{position:sticky;top:0;z-index:20;background:var(--paper);border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:1.25rem;padding:.85rem 1.75rem}
 #ask-form{flex:1;display:flex;align-items:baseline;gap:.55rem;max-width:58rem;min-width:0}
-#ask-form label{margin-right:.3rem;font-style:italic;font-size:1.55rem;color:var(--accent);white-space:nowrap}
+#home-btn{margin:0 .3rem 0 0;padding:0;border:0;background:none;font:inherit;font-style:italic;font-size:1.55rem;line-height:inherit;color:var(--accent);white-space:nowrap;cursor:pointer}
 #q{flex:1;min-width:0;font:inherit;font-size:1.55rem;color:var(--ink);background:transparent;border:0;border-bottom:1px solid var(--rule);padding:.1rem 0 .3rem;border-radius:0}
 #q:focus{outline:none;border-bottom-color:var(--accent)}
 #q::placeholder{color:var(--faint)}
@@ -65,7 +65,25 @@ header.top{position:sticky;top:0;z-index:20;background:var(--paper);border-botto
 .refs-btn .count{font-size:.72rem;font-weight:600;min-width:1.25rem;padding:0 .35rem;line-height:1.25rem;border-radius:999px;background:var(--note);color:var(--accent);text-align:center}
 .refs-btn[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);background:var(--note)}
 .refs-btn[aria-pressed="true"] .count{background:var(--accent);color:var(--on-accent)}
-.tools{margin-left:auto;display:flex;gap:.5rem;align-items:center}
+.tools{margin-left:auto;display:flex;gap:.5rem;align-items:center;position:relative}
+/* Session history panel (anchored to the right edge of the tools row) */
+.history-panel{position:absolute;right:0;top:calc(100% + .35rem);z-index:40;width:min(21rem,calc(100vw - 2rem));max-height:min(70vh,30rem);display:flex;flex-direction:column;padding:.3rem;background:var(--surface);border:1px solid var(--rule);border-radius:12px;box-shadow:0 10px 30px -14px rgba(18,28,48,.45),0 1px 2px rgba(18,28,48,.08);font-family:var(--sans);font-size:.85rem}
+.history-panel[hidden]{display:none}
+.history-list{list-style:none;margin:0;padding:0;overflow-y:auto;min-height:0}
+.history-list li{display:flex;align-items:center;gap:.15rem;border-radius:8px}
+.history-list li:hover,.history-list li:focus-within{background:var(--note)}
+.hist-open{flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:.08rem;border:0;background:none;text-align:left;padding:.45rem .6rem;border-radius:8px}
+.hist-title{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--ink);font-weight:500}
+.hist-meta{font-size:.75rem;color:var(--muted)}
+.hist-open[aria-current="true"] .hist-title{color:var(--accent)}
+.hist-cur{margin-left:.45rem;padding:0 .4rem;border-radius:999px;background:var(--note);color:var(--accent);font-size:.7rem;font-weight:600;line-height:1.5}
+.hist-del{flex:none;width:1.9rem;height:1.9rem;margin-right:.2rem;display:grid;place-items:center;border:0;background:none;border-radius:6px;color:var(--faint);padding:0}
+.hist-del svg{display:block}
+.hist-del:hover,.hist-del:focus-visible{color:var(--err);background:var(--surface)}
+.history-foot{display:flex;justify-content:flex-end;border-top:1px solid var(--rule);margin-top:.3rem;padding:.3rem .2rem 0}
+.history-foot button{border:0;background:none;color:var(--muted);font-size:.8rem;padding:.3rem .45rem;border-radius:6px}
+.history-foot button:hover,.history-foot button:focus-visible{color:var(--err)}
+.history-note{margin:.25rem .6rem .35rem;font-size:.74rem;line-height:1.4;color:var(--faint)}
 /* Level dropdown: a Go-style trigger and a floating listbox */
 .level-wrap{flex:none;display:inline-flex;align-self:center}
 .level-btn{display:inline-flex;align-items:center;gap:.45rem;white-space:nowrap}
@@ -105,9 +123,11 @@ main{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);min-height:c
 
 /* Empty state */
 #empty .lede{font-size:1.3rem;line-height:1.5;color:var(--muted);margin:0 0 1.5rem;max-width:34rem}
-#empty .ex-label{font-family:var(--sans);font-size:.82rem;color:var(--faint);margin:0 0 .5rem}
+#empty .ex-label{font-family:var(--sans);font-size:.82rem;color:var(--faint);margin:0 0 .5rem;display:flex;align-items:baseline;gap:.75rem}
+#ex-shuffle{font:inherit;color:var(--muted);background:none;border:0;padding:0;cursor:pointer;text-decoration:underline;text-decoration-color:color-mix(in srgb,currentColor 35%,transparent);text-underline-offset:.2em}
+#ex-shuffle:hover{color:var(--accent);text-decoration-color:currentColor}
 .examples{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.35rem;align-items:flex-start}
-.examples button{border:0;background:none;padding:.1rem 0;font-size:1.1rem;font-style:italic;color:var(--accent);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--accent) 35%,transparent);text-underline-offset:.2em;text-align:left;word-break:break-all}
+.examples button{border:0;background:none;padding:.1rem 0;font-size:1.1rem;font-style:italic;color:var(--accent);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--accent) 35%,transparent);text-underline-offset:.2em;text-align:left;overflow-wrap:anywhere}
 .examples button:hover{text-decoration-color:var(--accent)}
 
 /* Status */
@@ -174,6 +194,7 @@ sup.cite a:hover{text-decoration:underline}
 .bubble figure{margin:.7rem 0}
 .bubble.a.wide{max-width:100%;align-self:stretch}
 figure.chart{margin:1.6rem 0}
+figure.chart .chart-key{font-family:var(--sans);font-size:.8rem;color:var(--muted);margin-top:.35rem;white-space:pre-wrap}
 .chart-box{width:100%;height:300px}
 .bubble .chart-box{height:230px}
 .commons .attr{display:block;margin-top:.2rem;font-size:.72rem;color:var(--faint)}
@@ -303,10 +324,10 @@ dialog::backdrop{background:rgba(14,18,28,.38)}
   #ask-form{order:2;flex-basis:100%}
   .tools{order:1}
   #ask-form{flex-wrap:wrap}
-  #ask-form label,#q{flex-basis:100%}
+  #home-btn,#q{flex-basis:100%;text-align:left}
   .level-wrap{margin-left:auto}
   .prose .dek{font-size:1.2rem}
-  #ask-form label,#q{font-size:1.25rem}
+  #home-btn,#q{font-size:1.25rem}
   .prose{font-size:1.125rem}
   .prose h1{font-size:1.95rem}
   #doc-pane{padding-top:1.75rem}
@@ -353,8 +374,8 @@ main[hidden],#gate[hidden],.gate-btn[hidden],.gate-msg[hidden]{display:none}
 <body>
 <header class="top" id="hdr">
   <form id="ask-form" autocomplete="off">
-    <label for="q">Let AI explain</label>
-    <input id="q" type="text" placeholder="something — a topic, a link, or pasted text" spellcheck="false">
+    <button id="home-btn" type="button" title="Start over" aria-label="Start over">Let AI explain</button>
+    <input id="q" type="text" aria-label="What to explain" placeholder="something — a topic, a link, or pasted text" spellcheck="false">
     <div class="level-wrap" id="level-wrap">
       <button class="go level-btn" id="level-btn" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="level-menu" aria-label="Explanation level: clearly"><span id="level-text">clearly</span><svg class="chev" width="10" height="10" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/></svg></button>
       <ul class="level-menu" id="level-menu" role="listbox" aria-label="Explanation level" hidden>
@@ -368,6 +389,12 @@ main[hidden],#gate[hidden],.gate-btn[hidden],.gate-msg[hidden]{display:none}
   </form>
   <div class="tools">
     <a class="connect" id="connect-btn" href="/auth/start" hidden>Continue with ChatGPT</a>
+    <button class="chip" id="history-btn" type="button" hidden aria-haspopup="dialog" aria-expanded="false" aria-controls="history-panel">History</button>
+    <div class="history-panel" id="history-panel" role="dialog" aria-label="History" hidden>
+      <ul class="history-list" id="history-list"></ul>
+      <div class="history-foot"><button type="button" id="history-clear">Clear all</button></div>
+      <p class="history-note">Saved in this browser on this computer. Clear it anytime.</p>
+    </div>
     <div class="export-wrap">
       <button class="chip" id="export-btn" type="button" disabled aria-haspopup="menu" aria-expanded="false" aria-controls="export-menu">Export</button>
       <div class="export-menu" id="export-menu" role="menu" hidden>
@@ -396,12 +423,8 @@ main[hidden],#gate[hidden],.gate-btn[hidden],.gate-msg[hidden]{display:none}
     <p id="status" role="status" hidden><span class="pulse"></span><span id="status-text"></span><button type="button" class="stop-btn" id="main-stop" hidden>Stop</button></p>
     <div id="empty">
       <p class="lede">Type a topic, or paste a link or a passage of text. Then select any word or passage in the explanation to ask about it.</p>
-      <p class="ex-label">Try one</p>
-      <ul class="examples">
-        <li><button type="button" data-ex="Heisenberg uncertainty principle">Heisenberg uncertainty principle</button></li>
-        <li><button type="button" data-ex="https://en.wikipedia.org/wiki/Hamiltonian_mechanics">en.wikipedia.org/wiki/Hamiltonian_mechanics</button></li>
-        <li><button type="button" data-ex="https://arxiv.org/abs/1706.03762">arxiv.org/abs/1706.03762</button></li>
-      </ul>
+      <p class="ex-label"><span>Try one</span><button type="button" id="ex-shuffle" title="Show other examples">Shuffle</button></p>
+      <ul class="examples" id="examples"></ul>
     </div>
     <article id="article" class="prose"></article>
     <section id="refs" class="refs" aria-label="References" hidden></section>
@@ -685,7 +708,7 @@ const FORMAT_RULES = `
 Math: use LaTeX with inline $...$ and display $$...$$ (put display math on its own lines). Only KaTeX-supported commands. Never put math inside code blocks. Never use $ for currency; write "USD" instead.
 Diagrams and charts (only when they clearly help; at most 2):
 - Mermaid in a \`\`\`mermaid fenced block (flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, timeline or mindmap). Always wrap node labels in double quotes, e.g. A["Measure position"] --> B["Momentum spread grows"]. No LaTeX inside Mermaid.
-- A Plotly chart in a \`\`\`plotly fenced block for graphs of functions or data. The block holds only JSON: {"data": [traces], "layout": {...}}. Plain JSON with no JavaScript or functions: compute the points yourself (at most about 200 per trace). Give it a short title and labeled axes. Don't set colors, fonts, width or height.
+- A Plotly chart in a \`\`\`plotly fenced block for graphs of functions or data. The block holds only JSON: {"data": [traces], "layout": {...}}, with no JavaScript. For a curve given by a formula, use a formula trace instead of points: {"type": "scatter", "mode": "lines", "name": "A = 2", "formula": "2*sin(2*pi*x)", "xrange": [0, 2]}; the app samples it at 400 points. A formula uses x, numbers, + - * / ^, parentheses, pi, e and sin, cos, tan, exp, ln, log10, sqrt, abs, min, max. For measured or tabulated data, list the points (at most about 200 per trace). Label the axes. layout.title is used only as the accessible label and isn't drawn. Don't set colors, fonts, margins, legend, width or height.
 - Or a self-contained SVG in a \`\`\`svg fenced block for geometric or physical sketches: include a viewBox, use currentColor for strokes and text, plain text labels, no scripts, no external references.`;
 
 // Appended to every explanation prompt, with FORMAT_RULES.
@@ -694,7 +717,11 @@ const VISUAL_RULES = `Visuals:
 - Pick the best visual, in this order: (a) a figure from AVAILABLE IMAGES if one matches; (b) an image search, if a real photo, a real figure or a famous diagram is wanted; (c) Mermaid for structure or flow; (d) Plotly for graphs of functions or data; (e) SVG for geometric or physical sketches.
 - Embed AVAILABLE IMAGES with ![short caption](exact url). Never invent image URLs or use any URL not in that list.
 - Image search: write a fenced block with the language "image-search" holding only JSON, e.g. {"query": "transformer neural network architecture diagram", "count": 1}. count is 1–3. Use specific, descriptive English terms. The app finds matching images on Wikimedia Commons and credits them.
-- Never draw diagrams, charts or tables with ASCII art, box-drawing characters or arrow characters in code blocks.`;
+- Never draw diagrams, charts or tables with ASCII art, box-drawing characters or arrow characters in code blocks.
+- Charts: draw math curves with formula traces, never typed-in points.
+- Show a span or interval (a period, a wavelength, a range) as a shaded band (a layout.shapes rect with xref "x", yref "paper") or a bracket (a path shape with end ticks) plus one short label, never as a pair of dots.
+- One point per visual: label only what the caption or text refers to. At most 3 annotations, each 24 characters or fewer.
+- Put annotations in empty areas of the plot, never on top of a line, bar or point. Use an arrow (showarrow with arrowhead) only when the label can't sit next to what it names.`;
 
 // Appended to every explanation prompt (main, deeper, elaborate and the margin answers) by withLevel.
 const DEPTH_RULES = `Depth: no over-explaining, no under-explaining.
@@ -717,6 +744,14 @@ const REFS_RULES = `References:
 - Never invent references. Only cite works you're confident exist, and prefer well-known canonical sources (original papers, standard textbooks, Wikipedia, official docs). Fewer, real references beat many uncertain ones. Use 0–6 references; unverifiable ones are dropped.
 - After the recap block and before the next block, write a fenced code block with the language "refs" containing only a JSON array of objects: {"id": 1, "type": "source" | "paper" | "book" | "web", "title": "...", "authors": ["..."], "year": 2017, "url": "...", "doi": "..."}. Include only fields that are known; never guess a URL or DOI. With no references, write [].`;
 
+// The ```recap block, for the main explanation and each Go deeper layer.
+const RECAP_RULES = `Recap rules:
+- The recap is 1–3 sentences that state the core idea plainly, as if explaining it to a friend in one breath. That's the default, and it's often all the recap needs.
+- Bullets are optional. Add them only when the explanation built up 3 or more distinct ideas that the reader needs to remember and that the sentences above don't already capture, for example the steps of a mechanism or the key quantities in a law.
+- When used, each bullet states an insight or relationship ("Sharpening position forces a wider spread in momentum"), never a definition or a "Term: meaning" glossary entry. No lists of characters, people or vocabulary. At most 4 bullets.
+- If you're unsure whether bullets are needed, leave them out.
+- No new information, no questions, no citation markers, and no math beyond what already appeared. Match the reader level: everyday words for Simple; precise terms are fine for Expert.`;
+
 const MAIN_SYSTEM = `You are an excellent teacher writing for a curious, intelligent reader who is meeting this topic for the first time, with the background described under READER LEVEL below. Build understanding in the order this reader needs to discover it, not the order an expert would summarize it. Your goal is to help the reader construct a mental model, not to transfer facts.
 Output GitHub-flavored Markdown only, with no preamble and no closing remarks besides the recap, refs and next blocks described below.
 Start with a single "# " title. Right after the title, write a 1–2 sentence summary paragraph (at most 40 words) that says plainly what the topic is and what it's about. It comes before the "why" opening, and uses no math and no jargon the reader hasn't met yet.
@@ -733,15 +768,13 @@ Keep the structure invisible. Never name these steps in the text, and don't sign
 Headings: every "## " heading must be specific to this topic and say what its section is about (for example "Why the bakery can't keep all 100 USD", not "A little more about how it works"). Never use generic stock headings such as "Why it matters", "The deeper layer", "How it works", "A little more about…", "Key takeaways" or "In summary", and never use labels like "Step 1". Headings use no jargon the reader hasn't met yet.
 Keep it as simple as the reader level allows, but never misleading. Make no simplifications the reader will have to unlearn later. If the anchor example has limits, say so in the deeper part.
 Keep paragraphs short (2–5 sentences). Follow the math guidance under READER LEVEL, and treat its length as a ceiling, not a target. Unless READER LEVEL says otherwise, put most of the math in the deeper part and let earlier sections rely on words, the anchor example and pictures. At Expert level, keep the intuition and the example brief and spend most of the length on the substance.
-Recap: near the end, write exactly one fenced code block with the language "recap", with no heading of its own. Its content is Markdown:
-- First, one or two sentences that state the core idea plainly, as if the reader had to explain it to a friend in one breath.
-- Then 3–5 short bullets, each naming one key concept in **bold** followed by a plain one-line meaning, in the order the explanation built them up.
-- No new information, no questions, no citation markers, and no math beyond what already appeared. Match the reader level: everyday words for Simple; precise terms are fine for Expert.
-Format:
+Recap: near the end, write exactly one fenced code block with the language "recap", with no heading of its own. Its content is Markdown.
+${RECAP_RULES}
+Format (the list is optional):
 \`\`\`recap
-<the core idea in one or two sentences>
+<the core idea in one to three sentences>
 
-- **<concept>**: <plain one-line meaning>
+- <an insight or relationship, only if the bullet rules call for it>
 \`\`\`
 Next: after the recap and the refs block, end the output with a fenced code block with the language "next" containing only a JSON array of exactly 3 short strings (2–6 words each). They are specific directions for going deeper that build on what you explained, worded for the reader level, for example ["The math behind attention", "Why multiple heads help", "How it's trained"]. Nothing comes after it.
 Images: if an AVAILABLE IMAGES list is provided, you may embed the most useful ones (at most 3) with their exact URLs: ![short caption](url). Never invent image URLs.
@@ -786,10 +819,28 @@ function withLevel(base, kind, lv = state.level) {
 }
 
 const SIDE_BASE = `You help a reader who is studying a document. They highlighted part of it.`;
+// Margin answers (Explain this, Ask, follow-ups, Visualize captions): keep them from going in circles.
+const ANSWER_RULES = `Answer rules:
+- Answer first. The first sentence directly answers the question (yes/no, the number, the reason or the distinction). No restating the question, and no definition preamble.
+- Don't repeat what the reader already has. Treat the DOCUMENT and everything under ALREADY EXPLAINED TO THE READER as known: don't re-define a term or re-state a formula already given there. Refer to it in a few words ("that same p = mv") and spend the answer on what's new.
+- Never define a word using itself or a close variant (no "a distribution describes how results are distributed"). Define it by what it does, what it's made of, or what you'd observe.
+- Each sentence must add new information: a mechanism, a consequence, a contrast or a fresh example. If a sentence could be deleted without losing anything, delete it.
+- For "intuitively" or "why" questions, give a different angle than before: a physical sensation, an everyday situation or a mechanism. Don't reuse the previous example's numbers.
+- Reuse an earlier example only if the question is about that example.
+- Vary openings. Never start with "Not quite", "Related, but not quite", "Great question" or "In short". When correcting a misconception, state the correct relationship directly.
+- When the reader compares to an outside concept (for example heteroskedasticity), give the one key similarity and the one key difference, concretely, in under 3 sentences.
+- Answer the confusion behind the question, not just its words. For "how could this be?" or "why?", identify what seems paradoxical to the reader and resolve exactly that.
+- Don't introduce a new technical term unless you explain it in the same sentence. At Simple and Standard reader levels, prefer plain wording ("chance" over "probability density").
+- When a contrast is the key (A works this way, B doesn't), show it with one tiny worked comparison using concrete numbers, side by side.
+- Put the key insight in its own sentence, not in a trailing clause after a semicolon.
+- Say in plain words what any number means (0.25 = a 25% chance).
+- When the length limit allows more than 2 sentences, you may use two short paragraphs: the direct answer first, then why it matters, with a mini example.`;
 const EXPLAIN_SYSTEM = `${SIDE_BASE}
-Explain what the highlighted text means in this context in 1–2 sentences, at most 45 words. Plain and direct. No preamble, no lists, no headings, no restating the question. Inline LaTeX with $...$ is fine.`;
+Explain what the highlighted text means in this context in 1–2 sentences, at most 45 words. Plain and direct. No preamble, no lists, no headings, no restating the question. Inline LaTeX with $...$ is fine.
+${ANSWER_RULES}`;
 const ASK_SYSTEM = `${SIDE_BASE}
-Answer their question about the highlight in at most 3 short sentences (under 70 words). Plain and direct. No preamble, no lists, no headings. Inline LaTeX with $...$ is fine.`;
+Answer their question about the highlight in at most 5 short sentences (under 110 words). Plain and direct. No preamble, no lists, no headings. Inline LaTeX with $...$ is fine.
+${ANSWER_RULES}`;
 const ELAB_SYSTEM = `${SIDE_BASE}
 Write an elaboration that will be inserted directly after the paragraph containing the highlight. Go deeper on the highlighted concept, using the same teaching approach as the document in miniature. First say why this idea matters at this point. Then connect it to what the document has already explained. Then add precision: a definition, a derivation step, a concrete example, or where an intuition breaks down. Introduce one new term at a time and never use a term before explaining it. Don't re-explain what the document already covers. Keep it simple but never misleading. At most 250 words of Markdown; fewer when the idea is simple. No "#" or "##" headings. No preamble. No "think", "recap" or "next" block.
 Use at most one diagram or image, and only if it truly helps.`;
@@ -802,9 +853,12 @@ Choose the best form, in this order:
 4. An SVG sketch, for a spatial or physical setup.
 5. An \`\`\`image-search block, only if a real photo or a well-known figure is the right answer.
 Show the idea, not decoration: label the key parts, use the document's own terms and numbers, and keep it simple enough to read at margin size (a few nodes or labels, one or two traces).
-If no visual could honestly make this clearer, reply with exactly NO_VISUAL.`;
+If no visual could honestly make this clearer, reply with exactly NO_VISUAL.
+The caption (and the choice of what to show) follows these rules where they apply:
+${ANSWER_RULES}`;
 const FOLLOWUP_SYSTEM = `You help a reader who is studying a document. They typed a follow-up question in the margin, without highlighting anything. It may refer back to earlier margin notes.
-Answer in at most 4 short sentences (under 90 words). Plain and direct. No preamble, no headings. Inline LaTeX with $...$ is fine. If the question is outside the document's topic, still answer it briefly.`;
+Answer in at most 5 short sentences (under 110 words). Plain and direct. No preamble, no headings. Inline LaTeX with $...$ is fine. If the question is outside the document's topic, still answer it briefly.
+${ANSWER_RULES}`;
 const DEEPER_SYSTEM = `You are an excellent teacher continuing an explanation the reader has already read (it is included as context). Write the next layer; it will be appended directly below the existing text.
 Go one layer deeper: more precision, the mechanisms underneath, formal detail, real-world complications, limitations and current open questions, as fits the topic. If a DIRECTION is given, go deeper in that specific direction.
 Level: write one complexity step above the reader's selected level (Simple → Standard → Expert); the request states both. If the reader is already at Expert, go to derivations, research-level nuances and open problems.
@@ -816,17 +870,18 @@ Output GitHub-flavored Markdown only, with no preamble. Don't write a "# " title
 Depth: apply the depth rules at the level this layer is written at, and treat everything the existing explanation covers as already known.
 Length: the range under READER LEVEL is a ceiling, not a target; shorter is fine. Keep paragraphs short (2–5 sentences).
 End with exactly these three fenced blocks, in this order, with nothing after them:
-1. A short \`\`\`recap block: one or two sentences stating the core idea of this new layer, then up to 3 bullets, each a **bold** key concept followed by a plain one-line meaning. No new information, no questions and no citation markers.
+1. A short \`\`\`recap block for this new layer, following the recap rules below.
 2. A \`\`\`refs block, as described under References.
 3. A \`\`\`next block containing only a JSON array of exactly 3 short strings (2–6 words each): specific directions for going deeper still, building on this layer, worded for the target level.
 Images: if an AVAILABLE IMAGES list is provided, you may embed the most useful ones with their exact URLs: ![short caption](url). Never invent image URLs.
+${RECAP_RULES}
 ${REFS_RULES}
 - The existing explanation's references are listed under EXISTING REFERENCES. Cite them with those same numbers and don't list them again in refs. Number new references from the next free number given there.`;
 const REPAIR_SYSTEM = `You fix broken formatting snippets. Input is a JSON array of {id, kind, source, error}. kind is one of:
 - "math": KaTeX LaTeX including its delimiters. Keep the same delimiters and use only KaTeX-supported commands.
 - "mermaid": Mermaid code. Simplify if needed and wrap every node label in double quotes.
 - "svg": SVG markup.
-- "plotly": a Plotly JSON spec {"data": [...], "layout": {...}}. Return valid plain JSON with no JavaScript.
+- "plotly": a Plotly JSON spec {"data": [...], "layout": {...}}. Return valid plain JSON with no JavaScript. A trace may use "formula" (in x, with + - * / ^, pi, e, sin, cos, exp, ln, sqrt, abs…) and "xrange": [a, b] instead of points.
 - "image-search": JSON {"query": "...", "count": n} for a Wikimedia Commons image search that found nothing usable. Return the same JSON shape with a different query: shorter, more common terms, or the subject's most standard name.
 - "ascii": a diagram drawn with ASCII or box-drawing characters. Convert it to Mermaid code with the same structure, wrapping every node label in double quotes. Return only the Mermaid code.
 Return ONLY a JSON array of {id, fixed}: corrected source with the same meaning. If an item can't be fixed, return "fixed": "" to drop it. No prose, no code fences.`;
@@ -953,26 +1008,223 @@ function loadPlotly() {
     document.head.append(sc);
   });
 }
+/* Formula traces: {"formula": "2*sin(x)", "xrange": [0, 6.28]} sampled here, so curves are smooth
+   and exact. A tiny parser (no eval): numbers, x/t, + - * / ^, parentheses, constants and math functions. */
+const FX_FUNS = { sin: Math.sin, cos: Math.cos, tan: Math.tan, asin: Math.asin, acos: Math.acos, atan: Math.atan,
+  sinh: Math.sinh, cosh: Math.cosh, tanh: Math.tanh, exp: Math.exp, ln: Math.log, log: Math.log, log10: Math.log10,
+  log2: Math.log2, sqrt: Math.sqrt, abs: Math.abs, floor: Math.floor, ceil: Math.ceil, round: Math.round,
+  sign: Math.sign, min: Math.min, max: Math.max, pow: Math.pow, atan2: Math.atan2 };
+const FX_CONST = { pi: Math.PI, e: Math.E, tau: 2 * Math.PI };
+function compileFormula(src) {
+  const s = String(src || '').replace(/\*\*/g, '^').replace(/π/g, 'pi').replace(/·|×/g, '*').replace(/−/g, '-');
+  if (!s.trim() || s.length > 300) throw new Error('Formula is empty or too long');
+  const toks = s.match(/\d*\.?\d+(?:e[+-]?\d+)?|[a-z_][a-z0-9_]*|[-+*/^(),]|\S/gi) || [];
+  let i = 0;
+  const peek = () => toks[i], next = () => toks[i++];
+  const expect = t => { if (next() !== t) throw new Error(`Formula: expected "${t}" in ${src}`); };
+  const startsAtom = t => t !== undefined && (/^[\d.a-z_(]/i.test(t));
+  // expr := term (("+"|"-") term)*   term := unary (("*"|"/"|implicit) unary)*
+  // unary := "-" unary | power        power := atom ("^" unary)?
+  const expr = () => { let f = term(); while (peek() === '+' || peek() === '-') { const op = next(), a = f, b = term(); f = op === '+' ? x => a(x) + b(x) : x => a(x) - b(x); } return f; };
+  const term = () => {
+    let f = unary();
+    for (;;) {
+      if (peek() === '*' || peek() === '/') { const op = next(), a = f, b = unary(); f = op === '*' ? x => a(x) * b(x) : x => a(x) / b(x); }
+      else if (startsAtom(peek())) { const a = f, b = power(); f = x => a(x) * b(x); }
+      else return f;
+    }
+  };
+  const unary = () => { if (peek() === '-') { next(); const a = unary(); return x => -a(x); } if (peek() === '+') { next(); return unary(); } return power(); };
+  const power = () => { const a = atom(); if (peek() === '^') { next(); const b = unary(); return x => Math.pow(a(x), b(x)); } return a; };
+  const atom = () => {
+    const t = next();
+    if (t === undefined) throw new Error(`Formula ended early: ${src}`);
+    if (t === '(') { const f = expr(); expect(')'); return f; }
+    if (/^[\d.]/.test(t)) { const n = Number(t); if (!Number.isFinite(n)) throw new Error(`Formula: bad number "${t}"`); return () => n; }
+    const id = t.toLowerCase();
+    if (id === 'x' || id === 't') return x => x;
+    if (id in FX_CONST) { const c = FX_CONST[id]; return () => c; }
+    if (id in FX_FUNS) {
+      const fn = FX_FUNS[id], args = [];
+      expect('(');
+      if (peek() !== ')') { args.push(expr()); while (peek() === ',') { next(); args.push(expr()); } }
+      expect(')');
+      return x => fn(...args.map(a => a(x)));
+    }
+    throw new Error(`Formula: unknown name "${t}" (use x, numbers, pi, e and functions like sin, exp, sqrt)`);
+  };
+  const f = expr();
+  if (i < toks.length) throw new Error(`Formula: unexpected "${toks[i]}" in ${src}`);
+  return f;
+}
+const FORMULA_SAMPLES = 400;
+const round4 = v => Number.isFinite(v) ? Number(v.toPrecision(5)) : null;
+function sampleFormula(t, layout) {
+  const f = compileFormula(t.formula);
+  const r = Array.isArray(t.xrange) ? t.xrange : Array.isArray(t.range) ? t.range : layout.xaxis?.range;
+  const [a, b] = Array.isArray(r) && r.length === 2 && r.every(Number.isFinite) && r[0] !== r[1] ? r : [0, 10];
+  const x = [], y = [];
+  for (let k = 0; k < FORMULA_SAMPLES; k++) {
+    const xv = a + (b - a) * k / (FORMULA_SAMPLES - 1), yv = f(xv);
+    x.push(round4(xv)); y.push(Number.isFinite(yv) && Math.abs(yv) < 1e6 ? round4(yv) : null);
+  }
+  if (!y.some(v => v !== null)) throw new Error(`Formula gives no finite values on [${a}, ${b}]: ${t.formula}`);
+  const out = { ...t, x, y, mode: t.mode || 'lines', type: t.type || 'scatter' };
+  delete out.formula; delete out.xrange; delete out.range;
+  return out;
+}
+// Few evenly spaced points on a line read as a polygon; a spline reads as the curve it is.
+function evenlySpaced(x) {
+  if (!Array.isArray(x) || x.length < 3 || !x.every(Number.isFinite)) return false;
+  const d = x.slice(1).map((v, i) => v - x[i]), m = d.reduce((s, v) => s + v, 0) / d.length;
+  return m !== 0 && d.every(v => Math.abs(v - m) <= Math.abs(m) * 0.01);
+}
+const MAX_ANNOTATIONS = 3, ANNOTATION_CHARS = 24;
+const annText = s => String(s ?? '').replace(/<br\s*\/?>/gi, ' ').replace(/<[^>]*>/g, '').replace(/\s+/g, ' ').trim();
+// Theme-independent cleanup, done once at render: the stored spec is what every redraw and export uses.
+function tidyChart(spec) {
+  const layout = spec.layout && typeof spec.layout === 'object' ? { ...spec.layout } : {};
+  const title = typeof layout.title === 'string' ? layout.title : layout.title?.text;
+  for (const k of ['width', 'height', 'images', 'template', 'title', 'margin', 'legend']) delete layout[k];
+  const data = spec.data.map(t => {
+    if (typeof t.formula === 'string') return sampleFormula(t, layout);
+    t = { ...t };
+    const lineish = (!t.type || t.type === 'scatter' || t.type === 'scattergl') && (t.mode === undefined || /lines/.test(t.mode));
+    if (lineish && Array.isArray(t.x) && t.x.length < 60 && evenlySpaced(t.x) && !/^(hv|vh|hvh|vhv)$/.test(t.line?.shape || ''))
+      t.line = { ...(t.line || {}), shape: 'spline', smoothing: 1 };
+    return t;
+  });
+  const shown = data.filter(t => t.showlegend !== false && t.visible !== false && t.visible !== 'legendonly').length;
+  layout.showlegend = shown > 1;
+  if (Array.isArray(layout.annotations)) {
+    layout.annotations = layout.annotations.filter(a => a && typeof a === 'object' && annText(a.text)).slice(0, MAX_ANNOTATIONS).map(a => {
+      const text = annText(a.text), out = { ...a, text: text.length > ANNOTATION_CHARS ? text.slice(0, ANNOTATION_CHARS - 1).trimEnd() + '…' : text };
+      out.showarrow = a.arrowhead !== undefined && a.showarrow !== false;
+      if (out.showarrow && out.ax === undefined && out.ay === undefined) { out.ax = 0; out.ay = -28; }
+      delete out.bgcolor; delete out.font; delete out.bordercolor;
+      return out;
+    });
+  }
+  return { spec: { data, layout }, title };
+}
 function chartLayout(layout, extra = {}, vars = null) {
   const cs = getComputedStyle(document.documentElement), v = n => vars?.[n] ?? cs.getPropertyValue(n).trim();
-  const axis = ax => ({ ...(ax || {}), gridcolor: v('--rule'), zerolinecolor: v('--rule'), linecolor: v('--rule'), color: v('--muted') });
+  const axis = ax => ({ ...(ax || {}), automargin: true, gridcolor: v('--rule'), zerolinecolor: v('--rule'), linecolor: v('--rule'), color: v('--muted') });
+  const fade = (c, a) => { const m = /^#([0-9a-f]{6})$/i.exec(c); if (!m) return c; const n = parseInt(m[1], 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
   const L = { ...layout, dragmode: false, ...extra, autosize: true,
     paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
     font: { family: v('--sans'), color: v('--ink'), size: 12 },
     colorway: [v('--accent'), v('--think-ink'), v('--ok'), v('--err'), v('--muted')],
-    margin: { l: 52, r: 16, t: layout.title ? 44 : 16, b: 46 } };
+    margin: { l: 48, r: 12, t: 12, b: 48 },
+    legend: { orientation: 'h', x: 0, xanchor: 'left', y: -0.25, yanchor: 'top', font: { color: v('--muted') } } };
   for (const k of Object.keys(L)) if (/^[xy]axis\d*$/.test(k)) L[k] = axis(L[k]);
   L.xaxis = axis(L.xaxis); L.yaxis = axis(L.yaxis);
+  if (Array.isArray(L.annotations)) L.annotations = L.annotations.map(a => ({ ...a, borderpad: 2, bgcolor: fade(v('--paper'), 0.85),
+    font: { family: v('--sans'), color: v('--ink'), size: 11 }, arrowcolor: v('--muted'), arrowwidth: 1 }));
+  if (Array.isArray(L.shapes)) L.shapes = L.shapes.filter(s => s && typeof s === 'object').map(s => s.type === 'rect' || s.type === 'circle'
+    ? { ...s, fillcolor: s.fillcolor || fade(v('--accent'), 0.12), line: { width: 0, ...(s.line || {}) }, layer: s.layer || 'below' }
+    : { ...s, line: { width: 1.5, ...(s.line || {}), color: s.line?.color || v('--muted') } });
   return L;
+}
+
+/* After drawing: keep annotation labels off the data, the legend and each other. Nudge a label up to
+   40px in 8 directions; if nothing is clear, leave a numbered marker and put the text in the caption. */
+const CIRCLED = ['①', '②', '③', '④', '⑤'];
+function segHitsRect(x1, y1, x2, y2, r) {
+  // Liang–Barsky: does the segment cross the rectangle?
+  let t0 = 0, t1 = 1;
+  const dx = x2 - x1, dy = y2 - y1;
+  for (const [p, q] of [[-dx, x1 - r.left], [dx, r.right - x1], [-dy, y1 - r.top], [dy, r.bottom - y1]]) {
+    if (p === 0) { if (q < 0) return false; continue; }
+    const t = q / p;
+    if (p < 0) { if (t > t1) return false; if (t > t0) t0 = t; }
+    else { if (t < t0) return false; if (t < t1) t1 = t; }
+  }
+  return true;
+}
+const rectsMeet = (a, b) => a.left < b.right && b.left < a.right && a.top < b.bottom && b.top < a.bottom;
+const grow = (r, d) => ({ left: r.left - d, right: r.right + d, top: r.top - d, bottom: r.bottom + d });
+const shift = (r, dx, dy) => ({ left: r.left + dx, right: r.right + dx, top: r.top + dy, bottom: r.bottom + dy });
+function chartObstacles(gd) {
+  const fl = gd._fullLayout, g = gd.getBoundingClientRect(), lines = [], boxes = [];
+  for (const t of gd._fullData || []) {
+    if (t.visible !== true || !Array.isArray(t.x) || !Array.isArray(t.y)) continue;
+    const xa = fl[(t.xaxis || 'x').replace('x', 'xaxis')], ya = fl[(t.yaxis || 'y').replace('y', 'yaxis')];
+    if (!xa?.l2p || !ya?.l2p) continue;
+    const pts = t.x.map((xv, k) => {
+      const X = xa.l2p(xa.d2l ? xa.d2l(xv) : xv), Y = ya.l2p(ya.d2l ? ya.d2l(t.y[k]) : t.y[k]);
+      return Number.isFinite(X) && Number.isFinite(Y) ? [g.left + xa._offset + X, g.top + ya._offset + Y] : null;
+    });
+    const mode = t.mode || '';
+    if (/lines/.test(mode)) lines.push(pts);
+    if (/markers/.test(mode) || !/lines/.test(mode)) {
+      const rad = (typeof t.marker?.size === 'number' ? t.marker.size : 6) / 2;
+      for (const p of pts) if (p) boxes.push({ left: p[0] - rad, right: p[0] + rad, top: p[1] - rad, bottom: p[1] + rad });
+    }
+  }
+  for (const el of gd.querySelectorAll('.barlayer .point path, .boxlayer path.box')) boxes.push(el.getBoundingClientRect());
+  const leg = gd.querySelector('.legend');
+  if (leg && fl.showlegend) boxes.push(leg.getBoundingClientRect());
+  // Unfilled shapes (brackets, guide lines): a label may start on one on purpose, but isn't moved onto one.
+  const shapes = [...gd.querySelectorAll('.shapelayer path')].filter(p => { const st = getComputedStyle(p); return st.fill === 'none' || +st.fillOpacity === 0 || /rgba\(.*,\s*0\)$/.test(st.fill); })
+    .map(p => p.getBoundingClientRect());
+  return { lines, boxes, shapes, frame: g };
+}
+function hitsData(r, obs) {
+  const near = grow(r, 6);
+  if (obs.boxes.some(b => rectsMeet(near, b))) return true;
+  for (const pts of obs.lines) for (let k = 1; k < pts.length; k++) {
+    const a = pts[k - 1], b = pts[k];
+    if (a && b && segHitsRect(a[0], a[1], b[0], b[1], near)) return true;
+  }
+  return false;
+}
+async function declutterChart(gd) {
+  const anns = gd.layout.annotations || [];
+  if (!anns.length || !gd._fullLayout) return [];
+  const els = [...gd.querySelectorAll('.annotation[data-index]')];
+  const rectOf = i => { const el = els.find(e => +e.dataset.index === i); const bg = el?.querySelector('rect.bg') || el?.querySelector('text'); return bg ? bg.getBoundingClientRect() : null; };
+  const rects = anns.map((_, i) => rectOf(i)), obs = chartObstacles(gd), f = obs.frame;
+  const inside = r => r.left >= f.left && r.right <= f.right && r.top >= f.top && r.bottom <= f.bottom;
+  const clear = (r, i) => inside(r) && !hitsData(r, obs) && !rects.some((o, j) => j !== i && o && rectsMeet(grow(r, 2), o));
+  const dirs = [[0, -1], [0, 1], [1, 0], [-1, 0], [1, -1], [-1, -1], [1, 1], [-1, 1]];
+  const update = {}, key = [];
+  anns.forEach((a, i) => {
+    const r = rects[i];
+    if (!r || clear(r, i)) return;
+    const arrow = a.showarrow && (!a.axref || a.axref === 'pixel');
+    if (!a.showarrow || arrow) for (let d = 10; d <= 40; d += 10) for (const [ux, uy] of dirs) {
+      const dx = ux * d, dy = uy * d, c = shift(r, dx, dy);
+      if (!clear(c, i) || obs.shapes.some(b => rectsMeet(grow(c, 3), b))) continue;
+      if (arrow) { update[`annotations[${i}].ax`] = (a.ax || 0) + dx; update[`annotations[${i}].ay`] = (a.ay || 0) + dy; }
+      else { update[`annotations[${i}].xshift`] = (a.xshift || 0) + dx; update[`annotations[${i}].yshift`] = (a.yshift || 0) - dy; }
+      rects[i] = c; return;
+    }
+    const mark = CIRCLED[key.length] || `(${key.length + 1})`;
+    key.push(`${mark} ${a.text}`);
+    update[`annotations[${i}].text`] = mark;
+    const w = r.right - r.left, hgt = r.bottom - r.top, cx = r.left + w / 2, cy = r.top + hgt / 2;
+    rects[i] = { left: cx - 8, right: cx + 8, top: cy - 8, bottom: cy + 8 };
+  });
+  if (!Object.keys(update).length) return key;
+  // Plotly's autorange makes room for shifted labels; keep the axes the data asked for.
+  for (const [k, ax] of Object.entries(gd._fullLayout)) if (/^[xy]axis\d*$/.test(k) && ax?.autorange && Array.isArray(ax.range)) update[`${k}.range`] = ax.range.slice();
+  await Plotly.relayout(gd, update);
+  return key;
 }
 async function drawChart(el, spec, extra) {
   await loadPlotly();
   await Plotly.react(el, spec.data, chartLayout(spec.layout || {}, extra), { displayModeBar: false, responsive: true });
+  return declutterChart(el);
+}
+function chartKey(fig, key) {
+  fig.querySelector(':scope > figcaption.chart-key')?.remove();
+  if (key.length) fig.append(h('figcaption', { class: 'chart-key', text: key.join('   ') }));
 }
 async function paintChart(fig) {
   const box = fig.querySelector('.chart-box');
   if (!box) return;
-  try { await drawChart(box, JSON.parse(fig.dataset.spec)); fig.dataset.drawn = '1'; }
+  try { chartKey(fig, await drawChart(box, JSON.parse(fig.dataset.spec))); fig.dataset.drawn = '1'; }
   catch (e) { console.warn('Chart failed', e); markBroken(fig, fig.dataset.spec, 'This chart couldn’t be drawn.'); }
 }
 const chartIO = new IntersectionObserver(entries => {
@@ -1070,6 +1322,7 @@ async function renderInto(md, root) {
       pre.replaceWith(box);
     } else if (lang === 'mermaid') {
       const fig = h('figure', { class: 'diagram' }); fig.dataset.src = src; pre.replaceWith(fig);
+      figSource.set(fig, { kind: 'mermaid', source: f?.raw, body: src });
       try { await mermaid.parse(src); await drawDiagram(fig); }
       catch (e) { errors.push({ kind: 'mermaid', source: f?.raw, body: src, error: errText(e) }); markBroken(fig, src, 'This diagram couldn’t be drawn.'); }
     } else if (lang === 'plotly') {
@@ -1077,10 +1330,8 @@ async function renderInto(md, root) {
       try {
         const spec = JSON.parse(src);
         if (!Array.isArray(spec?.data) || !spec.data.length || spec.data.some(t => !t || typeof t !== 'object')) throw new Error('Expected {"data": [trace, ...], "layout": {...}}');
-        const layout = spec.layout && typeof spec.layout === 'object' ? { ...spec.layout } : {};
-        delete layout.width; delete layout.height; delete layout.images; delete layout.template;
-        fig.dataset.spec = JSON.stringify({ data: spec.data, layout });
-        const title = typeof layout.title === 'string' ? layout.title : layout.title?.text;
+        const { spec: clean, title } = tidyChart(spec);
+        fig.dataset.spec = JSON.stringify(clean);
         fig.append(h('div', { class: 'chart-box', role: 'img', 'aria-label': squash(title) || 'Chart' }));
         chartIO.observe(fig);
       } catch (e) { errors.push({ kind: 'plotly', source: f?.raw, body: src, error: errText(e) }); markBroken(fig, src, 'This chart couldn’t be drawn.'); }
@@ -1114,6 +1365,7 @@ async function renderInto(md, root) {
         if (!svg) throw new Error('SVG was empty after sanitizing');
         if (svg.getAttribute('viewBox')) { svg.removeAttribute('height'); svg.removeAttribute('width'); }
         svg.setAttribute('role', 'img');
+        figSource.set(fig, { kind: 'svg', source: f?.raw, body: src });
       } catch (e) { errors.push({ kind: 'svg', source: f?.raw, body: src, error: errText(e) }); markBroken(fig, src, 'This figure couldn’t be drawn.'); }
     }
   }
@@ -1142,11 +1394,11 @@ function parseJsonArray(s) {
   if (a < 0 || b <= a) return [];
   try { const v = JSON.parse(s.slice(a, b + 1)); return Array.isArray(v) ? v : []; } catch { return []; }
 }
-async function repair(md, errors) {
+async function repair(md, errors, signal) {
   const list = errors.filter(e => e.source && e.source.length < 6000).slice(0, 12);
   if (!list.length) return md;
   const payload = list.map((e, id) => ({ id, kind: e.kind, source: e.kind === 'math' ? e.source : e.body, error: e.error }));
-  const out = await callLLM({ system: REPAIR_SYSTEM, user: JSON.stringify(payload) });
+  const out = await callLLM({ system: REPAIR_SYSTEM, user: JSON.stringify(payload), signal });
   for (const f of parseJsonArray(out)) {
     const e = list[f?.id];
     if (!e || typeof f.fixed !== 'string') continue;
@@ -1158,14 +1410,44 @@ async function repair(md, errors) {
   }
   return md;
 }
+// Mermaid and SVG figures whose text labels collide. Layout needs a live document, so the
+// rendered node is mounted offscreen (at the article's width) just long enough to measure it.
+const figSource = new WeakMap();
+function labelOverlaps(root) {
+  const figs = $$('figure.diagram:not(.broken), figure.svg-fig:not(.broken)', root).filter(f => figSource.has(f));
+  if (!figs.length) return [];
+  const host = h('div', { 'aria-hidden': 'true' });
+  host.style.cssText = `position:fixed;left:-10000px;top:0;visibility:hidden;width:${$('#article')?.clientWidth || 720}px`;
+  const parent = root.parentNode, next = root.nextSibling;
+  host.append(root); document.body.append(host);
+  const out = [];
+  try {
+    for (const fig of figs) {
+      const items = $$('text', fig).map(t => ({ t: squash(t.textContent), r: t.getBoundingClientRect() }))
+        .filter(x => x.t && x.r.width > 0 && x.r.height > 0);
+      const pairs = [];
+      for (let i = 0; i < items.length && pairs.length < 6; i++) for (let j = i + 1; j < items.length && pairs.length < 6; j++) {
+        const a = items[i].r, b = items[j].r;
+        const ox = Math.min(a.right, b.right) - Math.max(a.left, b.left), oy = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top);
+        if (ox > 2 && oy > 2) pairs.push(`"${truncate(items[i].t, 40)}" and "${truncate(items[j].t, 40)}"`);
+      }
+      if (pairs.length) out.push({ ...figSource.get(fig), error: `Overlapping labels: ${pairs.join('; ')}. Move or shorten them so no two labels overlap, keeping the same content.` });
+    }
+  } finally {
+    host.remove();
+    if (parent) parent.insertBefore(root, next);
+  }
+  return out;
+}
 // Render offscreen, check everything, repair once, then hand back a finished node.
-async function prepare(md, onStatus) {
+async function prepare(md, onStatus, signal) {
   let root = document.createElement('div');
   let errors = await renderInto(md, root);
+  errors.push(...labelOverlaps(root));
   if (errors.length) {
     onStatus?.('Fixing formatting…');
     try {
-      const fixed = await repair(md, errors);
+      const fixed = await repair(md, errors, signal);
       if (fixed !== md) { md = fixed; root = document.createElement('div'); errors = await renderInto(md, root); }
     } catch (e) { console.warn('Repair skipped', e); }
   }
@@ -1435,7 +1717,8 @@ function cleanText(node) {
 
 /* ---------------- State ---------------- */
 const article = $('#article'), notesList = $('#notes-list'), statusEl = $('#status');
-let state = { docMd: '', title: '', notes: [], input: '', level, sourceImages: [], next: [], refs: [], showRefs: false };
+// sections: the main Markdown plus one per Go deeper layer. elabs: open elaborations. sid: history session id.
+let state = { docMd: '', sections: [], title: '', notes: [], elabs: [], input: '', level, sourceImages: [], next: [], refs: [], showRefs: false, sid: null };
 let mainCtl = null, reqSeq = 0, blockSeq = 0;
 // Stable ids for every top-level block (and blocks inside elaborations), used to anchor margin notes.
 function assignBlockIds() {
@@ -1468,7 +1751,8 @@ async function explain(input) {
   article.replaceChildren(); notesList.replaceChildren();
   resetFollowup();
   const lv = level;
-  state = { docMd: '', title: '', notes: [], input, level: lv, sourceImages: [], next: [], refs: [], showRefs: false };
+  flushSave();
+  state = { docMd: '', sections: [], title: '', notes: [], elabs: [], input, level: lv, sourceImages: [], next: [], refs: [], showRefs: false, sid: null };
   blockSeq = 0;
   syncExport(); syncRefs();
 
@@ -1499,7 +1783,7 @@ async function explain(input) {
     const { md: withRefs, next } = extractNext(cleanMain(raw));
     const { md: body, refs: rawRefs } = extractRefs(withRefs);
     const [{ md: prepped, root }, cites] = await Promise.all([
-      prepare(body, m => my === reqSeq && setStatus(m)),
+      prepare(body, m => my === reqSeq && setStatus(m), signal),
       resolveRefs(body, rawRefs, { source })]);
     if (my !== reqSeq) return;
     if (signal.aborted) throw new DOMException('Stopped', 'AbortError');
@@ -1514,10 +1798,15 @@ async function explain(input) {
     article.replaceChildren(...root.childNodes);
     assignBlockIds();
     setStatus(null);
-    notesList.replaceChildren(h('p', { class: 'notes-hint', text: 'Select any word or passage on the left to ask about it, or ask a follow-up below. Answers appear here.' }));
+    notesList.replaceChildren(notesHint());
     setFollowupReady(true);
     syncExport(); syncRefs();
     renderDeeper(next);
+    // Finished: start a history session for this tab and put it in the URL.
+    state.sections = [state.docMd];
+    state.sid = newSid(); state.created = Date.now();
+    setHash(state.sid, true);
+    saveSession();
   } catch (e) {
     if (my !== reqSeq) return;
     const msg = friendlyError(e);
@@ -1528,6 +1817,9 @@ async function explain(input) {
   }
 }
 $('#main-stop').addEventListener('click', () => mainCtl?.abort());
+// Margin answers, Visualize and elaborations share one controller, so Start over can stop them all.
+let sideCtl = null;
+const sideSignal = () => (sideCtl ||= new AbortController()).signal;
 
 /* ---------------- Go deeper ---------------- */
 let deepCtl = null;
@@ -1576,18 +1868,21 @@ async function goDeeper(direction) {
     const { md: withRefs, next } = extractNext(cleanMain(raw).replace(/^# .*\n+/, ''));
     const { md: body, refs: rawRefs } = extractRefs(withRefs);
     const [{ md, root }, cites] = await Promise.all([
-      prepare(body, m => live() && deeperStatus(m)),
+      prepare(body, m => live() && deeperStatus(m), signal),
       resolveRefs(body, rawRefs, { existing: st.refs })]);
     if (!live()) throw new DOMException('Stopped', 'AbortError');
     linkCitations(root, cites);
     const sep = h('hr', { class: 'deeper-sep' });
     article.append(sep, ...root.childNodes);
     assignBlockIds();
-    st.docMd += '\n\n---\n\n' + applyCites(md, cites);
+    const layer = applyCites(md, cites);
+    st.docMd += '\n\n---\n\n' + layer;
+    st.sections.push(layer);
     st.next = next;
     st.refs = cites.refs;
     syncRefs();
     renderDeeper(next);
+    scheduleSave();
     sep.scrollIntoView({ behavior: 'smooth', block: 'start' });
   } catch (e) {
     if (my !== reqSeq || state !== st) return;
@@ -1708,7 +2003,7 @@ function contextMessage(p, task, { recent: n = 4 } = {}) {
     `Q${x.quote ? ` (about "${truncate(x.quote, 80)}")` : ''}: ${x.question || 'Explain this.'}\nA: ${x.answer}`).join('\n\n');
   const parts = [`DOCUMENT "${state.title}" (for context):\n<<<\n${stripCites(docContext())}\n>>>`];
   if (state.sourceImages?.length) parts.push(`AVAILABLE IMAGES (from the source):\n${imageList(state.sourceImages)}`);
-  if (recent) parts.push(`EARLIER MARGIN NOTES (oldest first):\n${recent}`);
+  if (recent) parts.push(`ALREADY EXPLAINED TO THE READER (don't repeat):\n${recent}`);
   if (p) parts.push(`PARAGRAPH CONTAINING THE HIGHLIGHT:\n<<<\n${truncate(cleanText(p.block), 3000)}\n>>>`, `HIGHLIGHTED TEXT: "${p.text}"`);
   parts.push(task);
   return parts.join('\n\n');
@@ -1716,31 +2011,46 @@ function contextMessage(p, task, { recent: n = 4 } = {}) {
 
 /* ---------------- Margin notes ---------------- */
 // mode: 'explain' (Explain this), 'ask' (typed question) or 'visualize'.
+const notesHint = () => h('p', { class: 'notes-hint', text: 'Select any word or passage on the left to ask about it, or ask a follow-up below. Answers appear here.' });
+const blockById = id => id ? article.querySelector(`[data-block-id="${CSS.escape(id)}"]`) : null;
+// The question and answer bubbles of a margin note. quote null = a follow-up (label is the question).
+function noteShell(quote, label, getBlock, wide = false) {
+  $('.notes-hint', notesList)?.remove();
+  const q = h('div', { class: 'bubble q' });
+  if (quote != null) {
+    const quoteBtn = h('button', { class: 'quote', type: 'button', title: 'Show in text', text: '“' + truncate(quote, 220) + '”' });
+    quoteBtn.addEventListener('click', () => {
+      const b = getBlock?.();
+      if (!b?.isConnected) return;
+      b.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      b.classList.remove('flash'); void b.offsetWidth; b.classList.add('flash');
+    });
+    q.append(quoteBtn, h('div', { text: label }));
+  } else q.append(h('div', { class: 'qtext', text: label }));
+  const ab = h('div', { class: wide ? 'bubble a wide' : 'bubble a' }, dotsEl());
+  const note = h('div', { class: 'note' }, q, ab);
+  notesList.append(note);
+  return { note, ab };
+}
+
 async function addNote(p, question, mode = question ? 'ask' : 'explain') {
   if (mode === 'visualize') return visualizeNote(p);
-  const st = state; // a new explanation replaces state; don't write this answer into it
+  const st = state, signal = sideSignal(); // a new explanation replaces state; don't write this answer into it
   if (!p.block.dataset.blockId) assignBlockIds();
   const blockId = p.block.dataset.blockId || null;
-  $('.notes-hint', notesList)?.remove();
-  const quoteBtn = h('button', { class: 'quote', type: 'button', title: 'Show in text', text: '“' + truncate(p.text, 220) + '”' });
-  quoteBtn.addEventListener('click', () => {
-    if (!p.block.isConnected) return;
-    p.block.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    p.block.classList.remove('flash'); void p.block.offsetWidth; p.block.classList.add('flash');
-  });
-  const ab = h('div', { class: 'bubble a' }, dotsEl());
-  const note = h('div', { class: 'note' }, h('div', { class: 'bubble q' }, quoteBtn, h('div', { text: question || 'Explain this' })), ab);
-  notesList.append(note);
+  const { note, ab } = noteShell(p.text, question || 'Explain this', () => p.block);
   note.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   try {
     const raw = await callLLM({
       system: withLevel(question ? ASK_SYSTEM : EXPLAIN_SYSTEM, 'side'),
-      user: contextMessage(p, question ? `QUESTION: ${question}` : 'TASK: Explain the highlighted text.')
+      user: contextMessage(p, question ? `QUESTION: ${question}` : 'TASK: Explain the highlighted text.'),
+      signal
     });
-    const { md, root } = await prepare(squash(raw) ? raw.trim() : '_No answer returned._');
+    const { md, root } = await prepare(squash(raw) ? raw.trim() : '_No answer returned._', null, signal);
     ab.replaceChildren(...root.childNodes);
     ab.classList.toggle('wide', !!ab.querySelector('figure, .img-missing'));
     st.notes.push({ quote: p.text, question, answer: md, blockId, node: ab });
+    if (st === state) scheduleSave();
   } catch (e) {
     ab.classList.add('err'); ab.replaceChildren(friendlyError(e) || 'Stopped.');
   }
@@ -1751,25 +2061,16 @@ async function addNote(p, question, mode = question ? 'ask' : 'explain') {
 // A margin note whose answer is one visual plus a short caption.
 const hasVisual = root => !!root.querySelector('figure:not(.broken), img');
 async function visualizeNote(p) {
-  const st = state; // a new explanation replaces state; don't write this answer into it
+  const st = state, signal = sideSignal(); // a new explanation replaces state; don't write this answer into it
   if (!p.block.dataset.blockId) assignBlockIds();
   const blockId = p.block.dataset.blockId || null;
-  $('.notes-hint', notesList)?.remove();
-  const quoteBtn = h('button', { class: 'quote', type: 'button', title: 'Show in text', text: '“' + truncate(p.text, 220) + '”' });
-  quoteBtn.addEventListener('click', () => {
-    if (!p.block.isConnected) return;
-    p.block.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    p.block.classList.remove('flash'); void p.block.offsetWidth; p.block.classList.add('flash');
-  });
-  const ab = h('div', { class: 'bubble a wide' }, dotsEl());
-  const note = h('div', { class: 'note' }, h('div', { class: 'bubble q' }, quoteBtn, h('div', { text: 'Visualize' })), ab);
-  notesList.append(note);
+  const { note, ab } = noteShell(p.text, 'Visualize', () => p.block, true);
   note.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   const NONE = 'Couldn’t make a useful visual for this.';
   try {
-    const raw = await callLLM({ system: withLevel(VISUALIZE_SYSTEM, 'side'), user: contextMessage(p, 'TASK: Visualize the highlighted text.') });
+    const raw = await callLLM({ system: withLevel(VISUALIZE_SYSTEM, 'side'), user: contextMessage(p, 'TASK: Visualize the highlighted text.'), signal });
     const text = raw.trim();
-    const { root } = /^NO_VISUAL\b/.test(text) || !squash(text) ? { root: h('div') } : await prepare(text);
+    const { md, root } = /^NO_VISUAL\b/.test(text) || !squash(text) ? { md: '', root: h('div') } : await prepare(text, null, signal);
     // Validation, repair, image checks and the ASCII guard ran in prepare(); keep only a real visual.
     if (!hasVisual(root)) {
       ab.classList.remove('wide');
@@ -1779,7 +2080,9 @@ async function visualizeNote(p) {
       $$('.img-missing', root).forEach(e => e.remove());
       ab.replaceChildren(...root.childNodes);
       // Follow-ups get the caption, not the chart JSON or diagram source.
-      st.notes.push({ quote: p.text, question: 'Visualize', answer: '[A visual] ' + (cleanText(ab) || '(no caption)'), blockId, node: ab, visual: true });
+      // md is kept so history can redraw the visual.
+      st.notes.push({ quote: p.text, question: 'Visualize', answer: '[A visual] ' + (cleanText(ab) || '(no caption)'), md, blockId, node: ab, visual: true });
+      if (st === state) scheduleSave();
     }
   } catch (e) {
     ab.classList.remove('wide'); ab.classList.add('err'); ab.replaceChildren(friendlyError(e) || 'Stopped.');
@@ -1810,19 +2113,17 @@ fuForm.addEventListener('submit', e => {
   askFollowup(q);
 });
 async function askFollowup(question) {
-  const st = state; // a new explanation replaces state; don't write this answer into it
-  $('.notes-hint', notesList)?.remove();
-  const ab = h('div', { class: 'bubble a' }, dotsEl());
-  const note = h('div', { class: 'note' }, h('div', { class: 'bubble q' }, h('div', { class: 'qtext', text: question })), ab);
-  notesList.append(note);
+  const st = state, signal = sideSignal(); // a new explanation replaces state; don't write this answer into it
+  const { note, ab } = noteShell(null, question);
   note.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   fuBusy = true; syncFollowup();
   try {
-    const raw = await callLLM({ system: withLevel(FOLLOWUP_SYSTEM, 'side'), user: contextMessage(null, `FOLLOW-UP QUESTION: ${question}`, { recent: 6 }) });
-    const { md, root } = await prepare(squash(raw) ? raw.trim() : '_No answer returned._');
+    const raw = await callLLM({ system: withLevel(FOLLOWUP_SYSTEM, 'side'), user: contextMessage(null, `FOLLOW-UP QUESTION: ${question}`, { recent: 6 }), signal });
+    const { md, root } = await prepare(squash(raw) ? raw.trim() : '_No answer returned._', null, signal);
     ab.replaceChildren(...root.childNodes);
     ab.classList.toggle('wide', !!ab.querySelector('figure, .img-missing'));
     st.notes.push({ quote: null, question, answer: md, blockId: null, node: ab });
+    if (st === state) scheduleSave();
   } catch (e) {
     ab.classList.add('err'); ab.replaceChildren(friendlyError(e) || 'Stopped.');
     st.notes.push({ quote: null, question, answer: '(No answer: the request failed.)', blockId: null, node: ab, failed: true });
@@ -1833,19 +2134,32 @@ async function askFollowup(question) {
 }
 
 /* ---------------- Elaborate ---------------- */
-async function elaborate(p) {
+// The elaboration box. Closing it drops it from the session too.
+function elabBox(quote) {
   const body = h('div', { class: 'elab-body' }, dotsEl());
   const box = h('aside', { class: 'elab enter' },
     h('div', { class: 'elab-head' },
-      h('span', { text: 'More on “' + truncate(p.text, 70) + '”' }),
-      h('button', { class: 'elab-close', type: 'button', 'aria-label': 'Close elaboration', text: '×', onclick: () => box.remove() })),
+      h('span', { text: 'More on “' + truncate(quote, 70) + '”' }),
+      h('button', { class: 'elab-close', type: 'button', 'aria-label': 'Close elaboration', text: '×', onclick: () => {
+        box.remove();
+        const i = state.elabs.findIndex(e => e.box === box);
+        if (i >= 0) { state.elabs.splice(i, 1); scheduleSave(); }
+      } })),
     body);
+  return { box, body };
+}
+async function elaborate(p) {
+  const st = state, signal = sideSignal();
+  if (!p.block.dataset.blockId) assignBlockIds();
+  const after = p.block.dataset.blockId || null;
+  const { box, body } = elabBox(p.text);
   p.block.after(box);
   try {
-    const raw = await callLLM({ system: withLevel(ELAB_SYSTEM, 'side'), user: contextMessage(p, 'TASK: Elaborate on the highlighted text.') });
-    const { root } = await prepare(raw.trim().replace(/^#{1,2}\s.*\n/, ''));
+    const raw = await callLLM({ system: withLevel(ELAB_SYSTEM, 'side'), user: contextMessage(p, 'TASK: Elaborate on the highlighted text.'), signal });
+    const { md, root } = await prepare(raw.trim().replace(/^#{1,2}\s.*\n/, ''), null, signal);
     body.replaceChildren(...root.childNodes);
     assignBlockIds();
+    if (after && box.isConnected) { st.elabs.push({ after, quote: p.text, md, box }); if (st === state) scheduleSave(); }
   } catch (e) {
     body.replaceChildren(h('p', { class: 'err', text: friendlyError(e) || 'Stopped.' }));
   }
@@ -1952,7 +2266,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && !exportMen
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const slugify = s => String(s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
   .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'explanation';
-const LIGHT_VARS = { '--ink': '#1B2130', '--muted': '#586174', '--rule': '#E0E4EB', '--accent': '#2B4C82',
+const LIGHT_VARS = { '--paper': '#FFFFFF', '--ink': '#1B2130', '--muted': '#586174', '--rule': '#E0E4EB', '--accent': '#2B4C82',
   '--think-ink': '#8A5A12', '--ok': '#3C8D5A', '--err': '#A23B2A', '--sans': '"Instrument Sans", system-ui, sans-serif' };
 
 const EXPORT_CSS = `
@@ -2095,7 +2409,8 @@ async function chartToImg(spec) {
   document.body.append(tmp);
   try {
     await Plotly.newPlot(tmp, spec.data, chartLayout(spec.layout || {}, {}, LIGHT_VARS), { staticPlot: true });
-    return await Plotly.toImage(tmp, { format: 'svg', width: 720, height: 400 });
+    const key = await declutterChart(tmp);
+    return { src: await Plotly.toImage(tmp, { format: 'svg', width: 720, height: 400 }), key };
   } finally { Plotly.purge(tmp); tmp.remove(); }
 }
 
@@ -2183,7 +2498,11 @@ async function buildExport() {
   }
   for (const fig of $$('figure.chart', doc)) {
     const label = fig.querySelector('.chart-box')?.getAttribute('aria-label') || 'Chart';
-    try { fig.replaceChildren(h('img', { src: await chartToImg(JSON.parse(fig.dataset.spec)), alt: label })); }
+    try {
+      const { src, key } = await chartToImg(JSON.parse(fig.dataset.spec));
+      fig.replaceChildren(h('img', { src, alt: label }));
+      if (key.length) fig.append(h('figcaption', { class: 'chart-key', text: key.join('   ') }));
+    }
     catch (e) { console.warn('Export: chart failed', e); fig.replaceChildren(h('p', { class: 'render-err', text: 'This chart couldn’t be exported.' })); }
     delete fig.dataset.spec; delete fig.dataset.drawn;
   }
@@ -2319,9 +2638,393 @@ $('#support').addEventListener('mousedown', e => e.preventDefault());
 addEventListener('resize', placeSupport);
 new ResizeObserver(placeSupport).observe($('#doc-pane'));
 
+/* ---------------- Session history ---------------- */
+// Past explanations, kept in this browser's IndexedDB ("let-ai-explain" → "sessions", keyed by id), so they
+// survive closing the tab. Nothing goes to the server. The newest 100 are kept and anything older than
+// 30 days is deleted. If IndexedDB is unavailable (some private modes, blocked storage), history falls back
+// to sessionStorage and lasts until the tab closes. Every storage call is guarded so a failure never breaks the app.
+const HIST_MAX = 100, HIST_TTL = 30 * 864e5;
+const newSid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
+const hashSid = () => (location.hash.match(/^#s=([\w-]+)$/) || [])[1] || null;
+function setHash(id, push) {
+  try {
+    const url = id ? '#s=' + id : location.pathname + location.search;
+    if (push && location.hash !== '#s=' + id) history.pushState(null, '', url); else history.replaceState(null, '', url);
+  } catch {}
+}
+
+// A tiny promise wrapper around one IndexedDB object store.
+const idb = (() => {
+  let dbp = null;
+  const open = () => dbp ||= new Promise((res, rej) => {
+    try {
+      const rq = indexedDB.open('let-ai-explain', 1);
+      rq.onupgradeneeded = () => { if (!rq.result.objectStoreNames.contains('sessions')) rq.result.createObjectStore('sessions', { keyPath: 'id' }); };
+      rq.onsuccess = () => { const db = rq.result; db.onversionchange = () => { db.close(); dbp = null; }; res(db); };
+      rq.onerror = () => rej(rq.error || new Error('IndexedDB open failed'));
+    } catch (e) { rej(e); }
+  }).catch(e => { dbp = null; throw e; });
+  // Resolves with the request's result once the transaction commits.
+  const run = async (mode, fn) => {
+    const db = await open();
+    return new Promise((res, rej) => {
+      const t = db.transaction('sessions', mode), rq = fn(t.objectStore('sessions'));
+      t.oncomplete = () => res(rq?.result);
+      t.onerror = () => rej(t.error || rq?.error);
+      t.onabort = () => rej(t.error || rq?.error || new Error('IndexedDB transaction aborted'));
+    });
+  };
+  return {
+    open,
+    get: id => run('readonly', s => s.get(id)),
+    all: () => run('readonly', s => s.getAll()),
+    put: v => run('readwrite', s => s.put(v)),
+    del: id => run('readwrite', s => s.delete(id)),
+    clear: () => run('readwrite', s => s.clear())
+  };
+})();
+
+// sessionStorage: the fallback store, and where earlier versions kept history (moved over on first load).
+const SS_INDEX = PREFIX + 'history', ssKey = id => PREFIX + 'session:' + id;
+function ssIndex() {
+  try { const v = JSON.parse(sessionStorage.getItem(SS_INDEX) || '[]'); return Array.isArray(v) ? v.filter(x => x && typeof x.id === 'string') : []; }
+  catch { return []; }
+}
+const ssSetIndex = list => { try { sessionStorage.setItem(SS_INDEX, JSON.stringify(list)); } catch {} };
+const ssRemove = id => { try { sessionStorage.removeItem(ssKey(id)); } catch {} };
+function ssLoad(id) {
+  try { const s = JSON.parse(sessionStorage.getItem(ssKey(id)) || 'null'); return s && s.id === id ? s : null; } catch { return null; }
+}
+// Write one session and the index. Out of space: drop the oldest other session and retry.
+function ssWrite(data, list) {
+  const json = JSON.stringify(data);
+  for (;;) {
+    try { sessionStorage.setItem(ssKey(data.id), json); sessionStorage.setItem(SS_INDEX, JSON.stringify(list)); return list; }
+    catch (e) {
+      const victim = list.filter(x => x.id !== data.id).pop();
+      if (!victim) { ssRemove(data.id); ssSetIndex(list.filter(x => x.id !== data.id)); console.warn('History not saved', e); return null; }
+      list = list.filter(x => x !== victim); ssRemove(victim.id);
+    }
+  }
+}
+
+// One async API over either store. hMeta caches {id, title, level, ts}, newest first, so the
+// button and panel render without reading every session.
+let hBackend = 'ss', hMeta = [], hReady = null;
+const metaOf = s => ({ id: s.id, title: s.title || '', level: s.level, ts: +s.ts || 0 });
+const byNewest = (a, b) => b.ts - a.ts;
+function hInit() {
+  return hReady ||= (async () => {
+    try {
+      if (!window.indexedDB) throw new Error('IndexedDB is not available');
+      await idb.open();
+      hBackend = 'idb';
+    } catch (e) { console.warn('History falls back to sessionStorage (kept until this tab closes):', e); hBackend = 'ss'; }
+    if (hBackend === 'idb') {
+      // First load after the switch: move any sessionStorage sessions in, then drop the old copies.
+      for (const m of ssIndex()) {
+        const s = ssLoad(m.id);
+        try { if (s) await idb.put(s); ssRemove(m.id); } catch (e) { console.warn('Couldn’t move a session to IndexedDB', e); }
+      }
+      if (!ssIndex().some(m => ssLoad(m.id))) { try { sessionStorage.removeItem(SS_INDEX); } catch {} }
+      try { hMeta = (await idb.all()).filter(s => s && typeof s.id === 'string').map(metaOf); } catch (e) { console.warn('History list failed', e); hMeta = []; }
+    } else hMeta = ssIndex().map(metaOf);
+    hMeta.sort(byNewest);
+    await hPrune(hashSid());
+  })();
+}
+async function hDeleteRaw(id) {
+  if (hBackend === 'idb') { try { await idb.del(id); } catch (e) { console.warn('History delete failed', e); } }
+  else ssRemove(id);
+}
+// Drop sessions older than 30 days and all but the newest 100 (never the one being kept open).
+async function hPrune(keep) {
+  const cutoff = Date.now() - HIST_TTL;
+  const drop = hMeta.filter((m, i) => m.id !== keep && (m.ts < cutoff || i >= HIST_MAX));
+  if (!drop.length) return;
+  for (const m of drop) await hDeleteRaw(m.id);
+  hMeta = hMeta.filter(m => !drop.includes(m));
+  if (hBackend === 'ss') ssSetIndex(hMeta);
+}
+async function hGet(id) {
+  await hInit();
+  if (hBackend === 'ss') return ssLoad(id);
+  try { const s = await idb.get(id); return s && s.id === id ? s : null; } catch (e) { console.warn('History read failed', e); return null; }
+}
+async function hPut(data) {
+  await hInit();
+  let list = [metaOf(data), ...hMeta.filter(m => m.id !== data.id)];
+  if (hBackend === 'ss') {
+    const saved = ssWrite(data, list);
+    if (!saved) return false;
+    list = saved;
+  } else {
+    for (;;) {
+      try { await idb.put(data); break; }
+      catch (e) {
+        // Out of space: make room by dropping the oldest other session, then retry.
+        const victim = list.filter(m => m.id !== data.id).pop();
+        if (!victim || !/quota/i.test(e?.name || e?.message || '')) { console.warn('History not saved', e); return false; }
+        await hDeleteRaw(victim.id);
+        list = list.filter(m => m !== victim);
+      }
+    }
+  }
+  hMeta = list.sort(byNewest);
+  await hPrune(data.id);
+  return true;
+}
+async function hDelete(id) {
+  await hInit();
+  await hDeleteRaw(id);
+  hMeta = hMeta.filter(m => m.id !== id);
+  if (hBackend === 'ss') ssSetIndex(hMeta);
+}
+async function hClear() {
+  await hInit();
+  if (hBackend === 'idb') { try { await idb.clear(); } catch (e) { console.warn('History clear failed', e); } }
+  for (const m of ssIndex()) ssRemove(m.id);
+  try { sessionStorage.removeItem(SS_INDEX); } catch {}
+  hMeta = [];
+}
+hInit();
+
+// What identifies a block across a re-render, so notes and elaborations reattach to the same block ids.
+const blockSig = el => cleanText(el).slice(0, 160);
+const blockList = els => els.filter(el => el.nodeType === 1 && !el.matches('aside.elab')).map(el => ({ id: el.dataset.blockId || '', text: blockSig(el) }));
+// Give re-rendered blocks their saved ids, matching in order by text (tolerates an image that no longer loads).
+function alignIds(els, saved) {
+  let k = 0;
+  for (const el of els.filter(x => x.nodeType === 1 && !x.matches('aside.elab'))) {
+    const sig = blockSig(el);
+    for (let t = k; t < Math.min(saved.length, k + 4); t++) {
+      if (saved[t].text === sig) { if (saved[t].id && !blockById(saved[t].id)) el.dataset.blockId = saved[t].id; k = t + 1; break; }
+    }
+  }
+}
+// A finished explanation's saveable state. Only committed content: streaming text, pending notes
+// and elaborations still loading aren't in state yet.
+function snapshot(st) {
+  const blocks = [[]];
+  for (const el of article.children) {
+    if (el.matches('hr.deeper-sep')) blocks.push([]);
+    else if (!el.matches('aside.elab')) blocks[blocks.length - 1].push(...blockList([el]));
+  }
+  return {
+    v: 1, id: st.sid, created: st.created || Date.now(), ts: Date.now(), input: st.input, level: st.level, title: st.title,
+    sections: st.sections, sourceImages: st.sourceImages, refs: st.refs.map(({ n, ...r }) => r), next: st.next, blocks, blockSeq,
+    elabs: st.elabs.filter(e => e.box.isConnected).map(e => ({ after: e.after, quote: e.quote, md: e.md, blocks: blockList([...e.box.querySelector('.elab-body').children]) })),
+    notes: st.notes.filter(n => !n.failed).map(n => ({ quote: n.quote ?? null, blockId: n.blockId || null, question: n.question ?? null, answer: n.answer || '', md: n.md, visual: !!n.visual }))
+  };
+}
+let saveTimer = 0;
+// The snapshot is taken synchronously (before any await), so it always matches the page at call time.
+async function saveSession() {
+  clearTimeout(saveTimer); saveTimer = 0;
+  const st = state;
+  if (!st.sid || !st.docMd || !st.sections?.length) return;
+  let data;
+  try { data = snapshot(st); } catch (e) { console.warn('History snapshot failed', e); return; }
+  try { await hPut(data); } catch (e) { console.warn('History save failed', e); }
+  renderHistoryButton();
+}
+function scheduleSave() { clearTimeout(saveTimer); saveTimer = setTimeout(saveSession, 1000); }
+function flushSave() { if (saveTimer) saveSession(); }
+addEventListener('pagehide', flushSave);
+
+// Rebuild a saved explanation through the normal renderer: no AI calls and no repair pass.
+async function restoreSession(id, { push = false } = {}) {
+  const s = await hGet(id);
+  if (!s || !Array.isArray(s.sections) || !s.sections.length) return false;
+  flushSave();
+  mainCtl?.abort(); mainCtl = null; deepCtl?.abort(); deepCtl = null;
+  const my = ++reqSeq;
+  hidePopup(); closeHistory(); hideDeeper();
+  $('#empty').hidden = true; $('#main-stop').hidden = true;
+  article.replaceChildren(); notesList.replaceChildren(); resetFollowup();
+  state = { docMd: s.sections.join('\n\n---\n\n'), sections: [...s.sections], title: s.title || '', notes: [], elabs: [], input: s.input || '',
+    level: LEVELS.includes(s.level) ? s.level : 'standard', sourceImages: Array.isArray(s.sourceImages) ? s.sourceImages : [],
+    next: Array.isArray(s.next) ? s.next : [], refs: (Array.isArray(s.refs) ? s.refs : []).map((r, i) => ({ ...r, n: i + 1 })),
+    showRefs: false, sid: s.id, created: s.created };
+  const st = state, live = () => my === reqSeq && state === st;
+  blockSeq = +s.blockSeq || 0;
+  $('#q').value = st.input;
+  if (push) setHash(s.id, true);
+  syncExport(); syncRefs();
+  setStatus('Reopening…');
+  try {
+    const cites = { active: st.refs.length > 0, map: n => n >= 1 && n <= st.refs.length ? n : null };
+    for (let i = 0; i < st.sections.length; i++) {
+      const root = h('div');
+      await renderInto(st.sections[i], root);
+      if (!live()) return true;
+      linkCitations(root, cites);
+      const kids = [...root.childNodes];
+      if (i) article.append(h('hr', { class: 'deeper-sep' }));
+      article.append(...kids);
+      alignIds(kids, s.blocks?.[i] || []);
+    }
+    for (const e of Array.isArray(s.elabs) ? s.elabs : []) {
+      const anchor = blockById(e.after);
+      if (!anchor || typeof e.md !== 'string') continue;
+      const { box, body } = elabBox(e.quote || '');
+      box.classList.remove('enter');
+      anchor.after(box);
+      const root = h('div');
+      await renderInto(e.md, root);
+      if (!live()) return true;
+      const kids = [...root.childNodes];
+      body.replaceChildren(...kids);
+      alignIds(kids, e.blocks || []);
+      st.elabs.push({ after: e.after, quote: e.quote || '', md: e.md, box });
+    }
+    assignBlockIds();
+    for (const n of Array.isArray(s.notes) ? s.notes : []) {
+      const quote = typeof n.quote === 'string' ? n.quote : null;
+      const { ab } = noteShell(quote, quote != null ? n.question || 'Explain this' : n.question || '', () => blockById(n.blockId), !!n.visual);
+      const root = h('div');
+      await renderInto(n.md || n.answer || '', root);
+      if (!live()) return true;
+      ab.replaceChildren(...root.childNodes);
+      ab.classList.toggle('wide', !!n.visual || !!ab.querySelector('figure, .img-missing'));
+      st.notes.push({ quote, question: n.question ?? null, answer: n.answer || '', md: n.md, blockId: n.blockId || null, node: ab, visual: !!n.visual });
+    }
+    if (!st.notes.length) notesList.replaceChildren(notesHint());
+    document.title = (st.title || 'Explanation') + ' · Let AI Explain';
+    setStatus(null);
+    setFollowupReady(true);
+    syncExport(); syncRefs();
+    renderDeeper(st.next);
+  } catch (e) {
+    if (live()) setStatus('Couldn’t reopen that explanation: ' + errText(e), true);
+  }
+  renderHistoryButton();
+  return true;
+}
+
+// Header button and panel.
+const histBtn = $('#history-btn'), histPanel = $('#history-panel'), histList = $('#history-list');
+const LEVEL_WORD = { simple: 'simply', standard: 'clearly', expert: 'expertly' };
+const trashIcon = () => {
+  const s = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  s.setAttribute('width', '14'); s.setAttribute('height', '14'); s.setAttribute('viewBox', '0 0 16 16'); s.setAttribute('aria-hidden', 'true');
+  s.innerHTML = '<path d="M3 4.5h10M6.5 4.5V3h3v1.5M4.5 4.5l.6 8.5h5.8l.6-8.5M7 7v4M9 7v4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>';
+  return s;
+};
+// Shown as soon as any session is saved, including the one on screen.
+function renderHistoryButton() {
+  const any = hMeta.length > 0;
+  histBtn.hidden = !any;
+  if (!any) closeHistory();
+}
+// "3:42 PM" today, "Nov 12, 3:42 PM" otherwise.
+function whenText(ts) {
+  const d = new Date(ts || Date.now()), t = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  return d.toDateString() === new Date().toDateString() ? t : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${t}`;
+}
+function renderHistoryList() {
+  histList.replaceChildren(...hMeta.map(x => {
+    const cur = x.id === state.sid, title = x.title || 'Untitled';
+    const when = whenText(x.ts);
+    const open = h('button', { type: 'button', class: 'hist-open', title },
+      h('span', { class: 'hist-title', text: title }),
+      h('span', { class: 'hist-meta' }, `${LEVEL_WORD[x.level] || 'clearly'} · ${when}`, cur ? h('span', { class: 'hist-cur', text: 'Current' }) : null));
+    if (cur) open.setAttribute('aria-current', 'true');
+    open.addEventListener('click', () => { closeHistory(); if (!cur) restoreSession(x.id, { push: true }); });
+    const del = h('button', { type: 'button', class: 'hist-del', title: 'Delete', 'aria-label': `Delete “${title}” from history` }, trashIcon());
+    del.addEventListener('click', () => deleteSession(x.id));
+    return h('li', {}, open, del);
+  }));
+}
+// Forgetting the open explanation stops saving it; the page itself stays.
+function forgetCurrent() { state.sid = null; clearTimeout(saveTimer); saveTimer = 0; setHash(null, false); }
+async function deleteSession(id) {
+  if (id === state.sid) forgetCurrent();
+  await hDelete(id);
+  renderHistoryList(); renderHistoryButton();
+  if (!histPanel.hidden) (histList.querySelector('button') || $('#history-clear')).focus();
+}
+async function clearHistory() {
+  forgetCurrent();
+  await hClear();
+  renderHistoryButton();
+  $('#q').focus();
+}
+function openHistory() {
+  closeExportMenu();
+  renderHistoryList();
+  histPanel.hidden = false; histBtn.setAttribute('aria-expanded', 'true');
+  histList.querySelector('button')?.focus();
+}
+function closeHistory(refocus = false) {
+  if (histPanel.hidden) return;
+  histPanel.hidden = true; histBtn.setAttribute('aria-expanded', 'false');
+  if (refocus && !histBtn.hidden) histBtn.focus();
+}
+histBtn.addEventListener('click', () => histPanel.hidden ? openHistory() : closeHistory());
+$('#history-clear').addEventListener('click', clearHistory);
+document.addEventListener('mousedown', e => { if (!histPanel.hidden && !e.target.closest?.('#history-panel, #history-btn')) closeHistory(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !histPanel.hidden) closeHistory(true); });
+// Back/forward between #s= entries reopens that session.
+addEventListener('popstate', () => { const id = hashSid(); if (id && id !== state.sid) restoreSession(id); });
+
 /* ---------------- Wire-up ---------------- */
 $('#ask-form').addEventListener('submit', e => { e.preventDefault(); explain($('#q').value); });
-$$('.examples button').forEach(b => b.addEventListener('click', () => explain(b.dataset.ex)));
+
+/* ---------------- Start over ---------------- */
+// The header title: stop everything, clear the page and go back to the empty state.
+// Level, theme and History stay; the explanation that was open stays in History.
+function startOver() {
+  flushSave();
+  ++reqSeq; // in-flight main and Go deeper work sees it's stale
+  mainCtl?.abort(); mainCtl = null;
+  deepCtl?.abort(); deepCtl = null;
+  sideCtl?.abort(); sideCtl = null;
+  hidePopup(); closeHistory(); closeExportMenu();
+  if (lb.open) lb.close();
+  state = { docMd: '', sections: [], title: '', notes: [], elabs: [], input: '', level, sourceImages: [], next: [], refs: [], showRefs: false, sid: null };
+  blockSeq = 0;
+  article.replaceChildren(); notesList.replaceChildren();
+  setStatus(null); $('#main-stop').hidden = true;
+  hideDeeper(); resetFollowup();
+  syncExport(); syncRefs();
+  $('#empty').hidden = false;
+  renderGate(); // signed out: the sign-in screen stays in front
+  setHash(null, false);
+  document.title = 'Let AI Explain';
+  renderHistoryButton();
+  window.scrollTo(0, 0); $('#notes-pane').scrollTop = 0;
+  const q = $('#q'); q.value = ''; q.focus();
+}
+$('#home-btn').addEventListener('click', startOver);
+/* "Try one" examples: one link and four topics, each from a different subject, picked fresh on every load. */
+const EXAMPLES = [
+  ['How compound interest works', 'money'], ['Why the Roman Empire fell', 'history'],
+  ['How vaccines train the immune system', 'biology'], ['Why the sky is blue', 'science'],
+  ['How a bill becomes a law in the US', 'society'], ['What inflation is and why it happens', 'money'],
+  ['How large language models work', 'tech'], ['Why we dream', 'mind'], ['The Monty Hall problem', 'math'],
+  ['How CRISPR edits genes', 'biology'], ['What makes a sourdough rise', 'everyday life'],
+  ['How noise-cancelling headphones work', 'tech'], ['Impressionism in painting', 'arts'],
+  ['The trolley problem', 'philosophy'], ['How GPS knows where you are', 'tech'],
+  ['Why music in a minor key sounds sad', 'arts'], ['How the stock market works', 'money'],
+  ['Plate tectonics', 'science'], ['Heisenberg uncertainty principle', 'science'],
+  ['https://en.wikipedia.org/wiki/Candide', 'arts'], ['https://en.wikipedia.org/wiki/Photosynthesis', 'biology'],
+  ['https://arxiv.org/abs/1706.03762', 'tech']
+].map(([ex, tag]) => ({ ex, tag, link: /^https?:\/\//.test(ex) }));
+const shuffled = a => { a = [...a]; for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; };
+function pickExamples() {
+  const link = shuffled(EXAMPLES.filter(e => e.link))[0], used = new Set([link.tag]), topics = [];
+  for (const e of shuffled(EXAMPLES.filter(e => !e.link))) {
+    if (topics.length === 4) break;
+    if (!used.has(e.tag)) { used.add(e.tag); topics.push(e); }
+  }
+  const list = [...topics];
+  list.splice(Math.floor(Math.random() * (list.length + 1)), 0, link);
+  $('#examples').replaceChildren(...list.map(e => h('li', {},
+    h('button', { type: 'button', text: e.ex.replace(/^https?:\/\//, ''), onclick: () => explain(e.ex) }))));
+}
+pickExamples();
+$('#ex-shuffle').addEventListener('click', pickExamples);
 new ResizeObserver(() => document.documentElement.style.setProperty('--hdr', $('#hdr').offsetHeight + 'px')).observe($('#hdr'));
 marked.use({ gfm: true });
 applyTheme(lsGet('theme'));
@@ -2333,7 +3036,14 @@ applyTheme(lsGet('theme'));
   // Main area stays empty (both <main> and #gate hidden) until this first check finishes.
   sessionReady = refreshSession();
   await sessionReady;
-  if (!signin) return;
+  await hInit();
+  renderHistoryButton();
+  if (!signin) {
+    // Reload (or a link) with #s=<id>: reopen that session from history, if it's still there.
+    const id = hashSid();
+    if (id && !(await restoreSession(id))) setHash(null, false);
+    return;
+  }
   // Back from the sign-in flow: put the saved input back in the search bar.
   const p = ssGet('pending'); ssDel('pending');
   if (p) $('#q').value = p;
