@@ -1,0 +1,2253 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Let AI Explain</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='88'>📖</text></svg>">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<style>
+:root{
+  --paper:#F7F8FA; --paper2:#F0F2F6; --surface:#FFFFFF;
+  --ink:#1B2130; --muted:#586174; --faint:#8C94A4; --rule:#E0E4EB;
+  --accent:#2B4C82; --on-accent:#FFFFFF; --note:#EAEFF7; --hl:#FBEAA0; --err:#A23B2A; --ok:#3C8D5A;
+  --think-bg:#FBF5E6; --think-rule:#EADFC2; --think-ink:#8A5A12;
+  --serif:"Newsreader","Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+  --sans:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  --hdr:4.4rem;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#15181E; --paper2:#181C23; --surface:#1D2129;
+    --ink:#E3E6ED; --muted:#A0A8B8; --faint:#6E7688; --rule:#2B303B;
+    --accent:#9DB6E4; --on-accent:#14171C; --note:#202634; --hl:#5B4F1F; --err:#E58C7A; --ok:#6CC08A;
+    --think-bg:#211E17; --think-rule:#3A3324; --think-ink:#E0B970;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#15181E; --paper2:#181C23; --surface:#1D2129;
+  --ink:#E3E6ED; --muted:#A0A8B8; --faint:#6E7688; --rule:#2B303B;
+  --accent:#9DB6E4; --on-accent:#14171C; --note:#202634; --hl:#5B4F1F; --err:#E58C7A; --ok:#6CC08A;
+    --think-bg:#211E17; --think-rule:#3A3324; --think-ink:#E0B970;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--serif);font-size:1.0625rem;line-height:1.5;font-optical-sizing:auto}
+button{font:inherit;color:inherit;cursor:pointer}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:4px}
+.sr-only{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* Header */
+header.top{position:sticky;top:0;z-index:20;background:var(--paper);border-bottom:1px solid var(--rule);display:flex;align-items:center;gap:1.25rem;padding:.85rem 1.75rem}
+#ask-form{flex:1;display:flex;align-items:baseline;gap:.55rem;max-width:58rem;min-width:0}
+#ask-form label{margin-right:.3rem;font-style:italic;font-size:1.55rem;color:var(--accent);white-space:nowrap}
+#q{flex:1;min-width:0;font:inherit;font-size:1.55rem;color:var(--ink);background:transparent;border:0;border-bottom:1px solid var(--rule);padding:.1rem 0 .3rem;border-radius:0}
+#q:focus{outline:none;border-bottom-color:var(--accent)}
+#q::placeholder{color:var(--faint)}
+.go{font-family:var(--sans);font-size:.85rem;font-weight:500;padding:.45rem 1rem;border-radius:999px;border:1px solid var(--rule);background:var(--surface);align-self:center}
+.go:hover{border-color:var(--accent);color:var(--accent)}
+.go:focus-visible{border-radius:999px}
+.go:disabled{opacity:.5;cursor:default}
+.go:disabled:hover{border-color:var(--rule);color:inherit}
+/* References toggle: a pill like Go, with a count badge */
+.refs-btn{display:inline-flex;align-items:center;gap:.4rem;white-space:nowrap}
+.refs-btn .count{font-size:.72rem;font-weight:600;min-width:1.25rem;padding:0 .35rem;line-height:1.25rem;border-radius:999px;background:var(--note);color:var(--accent);text-align:center}
+.refs-btn[aria-pressed="true"]{border-color:var(--accent);color:var(--accent);background:var(--note)}
+.refs-btn[aria-pressed="true"] .count{background:var(--accent);color:var(--on-accent)}
+.tools{margin-left:auto;display:flex;gap:.5rem;align-items:center}
+/* Level dropdown, a pill like Go */
+.level-wrap{position:relative;flex:none;display:inline-flex;align-self:center;color:var(--muted)}
+.level-wrap::after{content:'';position:absolute;right:.9rem;top:50%;width:.34rem;height:.34rem;border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;transform:translateY(-70%) rotate(45deg);pointer-events:none}
+.level-wrap:hover{color:var(--accent)}
+#level{appearance:none;-webkit-appearance:none;font-family:var(--sans);font-size:.85rem;font-weight:500;font-style:normal;line-height:1.5;color:var(--ink);background:var(--surface);border:1px solid var(--rule);border-radius:999px;padding:.45rem 1.95rem .45rem 1rem;margin:0;cursor:pointer}
+#level:hover{border-color:var(--accent);color:var(--accent)}
+#level:focus{outline:none}
+#level:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:999px}
+#level option{font-style:normal;color:var(--ink);background:var(--surface)}
+.chip{font-family:var(--sans);font-size:.8rem;padding:.42rem .8rem;border:1px solid var(--rule);border-radius:999px;background:var(--surface);color:var(--muted);max-width:17rem;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip .dot{display:inline-block;width:.45rem;height:.45rem;border-radius:50%;background:var(--faint);margin-right:.45rem;vertical-align:.06em}
+.chip.on .dot{background:var(--ok)}
+.chip:hover{color:var(--ink)}
+.chip:disabled{opacity:.5;cursor:default}
+.chip:disabled:hover{color:var(--muted)}
+.export-wrap{position:relative}
+.export-menu{position:absolute;right:0;top:calc(100% + .35rem);z-index:40;min-width:9rem;display:flex;flex-direction:column;padding:.3rem;background:var(--surface);border:1px solid var(--rule);border-radius:10px;box-shadow:0 10px 30px -14px rgba(18,28,48,.45)}
+.export-menu[hidden]{display:none}
+.export-menu button{border:0;background:none;text-align:left;padding:.45rem .65rem;border-radius:7px;font-family:var(--sans);font-size:.85rem;color:var(--ink)}
+.export-menu button:hover,.export-menu button:focus-visible{background:var(--note)}
+.icon-btn{width:2.15rem;height:2.15rem;border-radius:50%;border:1px solid var(--rule);background:var(--surface);display:grid;place-items:center;color:var(--muted);padding:0}
+.icon-btn:hover{color:var(--ink)}
+
+/* Layout */
+main{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);min-height:calc(100vh - var(--hdr))}
+#doc-pane{padding:2.75rem clamp(1.25rem,4vw,4rem) 1.5rem;min-width:0;display:flex;flex-direction:column}
+#doc-pane > *{width:100%}
+#article,#status,#empty,#refs{max-width:41rem;margin-left:auto;margin-right:auto}
+
+#notes-pane{border-left:1px solid var(--rule);background:var(--paper2);position:sticky;top:var(--hdr);height:calc(100vh - var(--hdr));display:flex;flex-direction:column;overflow:hidden}
+#notes-list{flex:1;min-height:0;overflow-y:auto;padding:1.75rem 1.25rem 1.5rem}
+
+/* Empty state */
+#empty .lede{font-size:1.3rem;line-height:1.5;color:var(--muted);margin:0 0 1.5rem;max-width:34rem}
+#empty .ex-label{font-family:var(--sans);font-size:.82rem;color:var(--faint);margin:0 0 .5rem}
+.examples{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.35rem;align-items:flex-start}
+.examples button{border:0;background:none;padding:.1rem 0;font-size:1.1rem;font-style:italic;color:var(--accent);text-decoration:underline;text-decoration-color:color-mix(in srgb,var(--accent) 35%,transparent);text-underline-offset:.2em;text-align:left;word-break:break-all}
+.examples button:hover{text-decoration-color:var(--accent)}
+
+/* Status */
+#status{font-family:var(--sans);font-size:.88rem;color:var(--muted);margin-bottom:1.75rem;display:flex;align-items:center;gap:.6rem}
+#status[hidden]{display:none}
+#status .pulse{flex:none;width:.5rem;height:.5rem;border-radius:50%;background:var(--accent);animation:pulse 1.2s ease-in-out infinite}
+#status.error{color:var(--err)}
+#status.error .pulse{display:none}
+.stop-btn{margin-left:auto;flex:none;border:1px solid var(--rule);background:var(--surface);border-radius:999px;padding:.2rem .75rem;font-family:var(--sans);font-size:.8rem;color:var(--muted)}
+.stop-btn:hover{color:var(--err);border-color:var(--err)}
+.stop-btn[hidden]{display:none}
+/* Go deeper */
+.deeper{max-width:41rem;margin:2.5rem auto 0;font-family:var(--sans);font-size:.85rem}
+.deeper[hidden],.deeper-row[hidden],.deeper-status[hidden]{display:none}
+.deeper-row{display:flex;flex-wrap:wrap;gap:.45rem;align-items:center}
+.deeper-go{border:1px solid var(--accent);background:var(--surface);color:var(--accent);border-radius:999px;padding:.45rem 1.05rem;font-weight:500}
+.deeper-go:hover{background:var(--accent);color:var(--on-accent)}
+.deeper-chip{border:1px solid var(--rule);background:transparent;color:var(--muted);border-radius:999px;padding:.4rem .85rem;text-align:left}
+.deeper-chip:hover{border-color:var(--accent);color:var(--accent)}
+.deeper button:disabled{opacity:.5;cursor:default}
+.deeper-status{display:flex;align-items:center;gap:.6rem;color:var(--muted);margin:0 0 .7rem;font-size:.88rem}
+.deeper-status .pulse{flex:none;width:.5rem;height:.5rem;border-radius:50%;background:var(--accent);animation:pulse 1.2s ease-in-out infinite}
+.deeper-status.error{color:var(--err)}
+.deeper-status.error .pulse{display:none}
+.prose hr.deeper-sep{width:40%;margin:3.2rem auto}
+/* Citations and references (hidden until the References toggle is on) */
+sup.cite{font-family:var(--sans);font-size:.62em;font-weight:600;line-height:0;margin-left:.08em}
+sup.cite a{color:var(--accent);text-decoration:none}
+sup.cite a:hover{text-decoration:underline}
+#article:not(.show-refs) sup.cite{display:none}
+#refs{margin-top:2.6rem;padding-top:1.2rem;border-top:1px solid var(--rule)}
+#refs[hidden]{display:none}
+.refs h2{font-size:1.2rem;line-height:1.25;font-weight:600;margin:0 0 .7rem}
+.ref-list{font-family:var(--sans);font-size:.88rem;line-height:1.5;color:var(--ink);padding-left:1.7em;margin:0}
+.ref-list li{margin:.45em 0;padding-left:.15em;scroll-margin-top:calc(var(--hdr) + 1rem);overflow-wrap:anywhere}
+.ref-list a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:.15em}
+.ref-list .venue{font-style:italic}
+.ref-list .src-tag{color:var(--faint)}
+@keyframes pulse{0%,100%{opacity:.25;transform:scale(.8)}50%{opacity:1;transform:scale(1)}}
+
+/* Prose */
+.prose{font-size:1.1875rem;line-height:1.62;hyphens:auto;text-wrap:pretty;overflow-wrap:break-word}
+.prose h1{font-size:2.4rem;line-height:1.1;font-weight:500;letter-spacing:-.015em;margin:0 0 1.3rem}
+.prose h2{font-size:1.45rem;line-height:1.25;font-weight:600;margin:2.4rem 0 .6rem}
+.prose h3{font-size:1.2rem;line-height:1.3;font-weight:600;margin:1.8rem 0 .45rem}
+.prose h4{font-size:1.05rem;font-weight:600;margin:1.4rem 0 .4rem}
+.prose p{margin:0 0 1.05em}
+.prose .dek{font-size:1.3rem;line-height:1.5;font-style:italic;color:var(--muted);margin:-.2rem 0 1.9rem}
+.prose ul,.prose ol{padding-left:1.35em;margin:0 0 1.05em}
+.prose li{margin:.3em 0}
+.prose li > p{margin:0 0 .4em}
+.prose a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:.15em}
+.prose strong{font-weight:600}
+.prose blockquote{margin:1.2em 0;padding-left:1em;border-left:2px solid var(--rule);color:var(--muted);font-style:italic}
+.prose code{font-family:var(--mono);font-size:.8em;background:var(--note);padding:.12em .32em;border-radius:4px}
+.prose pre{background:var(--note);padding:1rem 1.1rem;border-radius:8px;overflow-x:auto;font-size:.95rem;line-height:1.5}
+.prose pre code{background:none;padding:0;font-size:.82rem}
+:is(.prose,.bubble) figure{margin:1.9rem 0;text-align:center}
+:is(.prose,.bubble) figure img{max-width:100%;height:auto;border-radius:4px;background:#fff}
+:is(.prose,.bubble) figcaption{font-family:var(--sans);font-size:.82rem;color:var(--muted);margin-top:.55rem;line-height:1.45;text-align:center;hyphens:none}
+:is(.prose,.bubble) img{max-width:100%;height:auto}
+:is(.prose,.bubble) :is(.diagram,.svg-fig) svg{max-width:100%;height:auto;color:var(--ink)}
+:is(.prose,.bubble) .svg-fig svg{width:100%;max-width:36rem}
+.bubble figure{margin:.7rem 0}
+.bubble.a.wide{max-width:100%;align-self:stretch}
+figure.chart{margin:1.6rem 0}
+.chart-box{width:100%;height:300px}
+.bubble .chart-box{height:230px}
+.commons .attr{display:block;margin-top:.2rem;font-size:.72rem;color:var(--faint)}
+.commons .attr a{color:inherit;text-decoration-thickness:1px}
+.img-missing{font-family:var(--sans);font-size:.82rem;font-style:italic;color:var(--faint);margin:.6rem 0}
+:is(#article,#notes-list) figure:not(.broken),:is(#article,#notes-list) img{cursor:zoom-in}
+:is(#article,#notes-list) figcaption a{cursor:pointer}
+/* Lightbox */
+#lightbox{width:min(94vw,72rem);max-width:none;max-height:92vh;padding:1.25rem;overflow:auto;cursor:zoom-out}
+#lightbox .lb-body{display:flex;flex-direction:column;align-items:center;gap:.6rem}
+#lightbox img{max-width:100%;max-height:80vh;height:auto;border-radius:4px;background:#fff}
+#lightbox .lb-svg{width:100%;color:var(--ink)}
+#lightbox .lb-svg svg,#lightbox .lb-diagram svg{display:block;width:100%;height:auto;max-height:80vh;margin:0 auto}
+#lightbox .lb-diagram{margin:0;width:100%}
+#lightbox .lb-chart{width:100%;height:min(75vh,640px);cursor:default}
+#lightbox figcaption{font-family:var(--sans);font-size:.85rem;color:var(--muted);text-align:center;max-width:48rem;line-height:1.45}
+.prose hr{border:0;border-top:1px solid var(--rule);margin:2.2rem 0}
+.table-wrap{overflow-x:auto;margin:1.3rem 0}
+.prose table{border-collapse:collapse;font-size:.95rem;line-height:1.45;width:100%}
+.prose th,.prose td{border-bottom:1px solid var(--rule);padding:.45rem .6rem;text-align:left;vertical-align:top}
+.prose th{font-family:var(--sans);font-size:.8rem;font-weight:600;color:var(--muted)}
+.katex{font-size:1.05em}
+.katex-display{overflow-x:auto;overflow-y:hidden;padding:.25rem 0;margin:1.1rem 0}
+.render-err{font-family:var(--mono);font-size:.8em;color:var(--err);background:color-mix(in srgb,var(--err) 9%,transparent);padding:.08em .32em;border-radius:3px;word-break:break-all}
+.diagram.broken{border:1px dashed var(--rule);border-radius:8px;padding:.9rem 1rem;text-align:left}
+.diagram.broken figcaption{text-align:left;margin:0 0 .3rem}
+.diagram.broken summary{font-family:var(--sans);font-size:.8rem;color:var(--muted);cursor:pointer}
+#article ::selection,.elab ::selection{background:var(--hl);color:inherit}
+.flash{animation:flash 1.6s ease-out}
+@keyframes flash{0%,25%{background:var(--hl)}100%{background:transparent}}
+
+/* Think-about-it callout */
+.think,.recap{margin:1.9rem 0;padding:.9rem 1.2rem 1rem;border:1px solid var(--think-rule);border-left:3px solid var(--think-ink);background:var(--think-bg);border-radius:0 10px 10px 0}
+.think-label,.recap-label{font-family:var(--sans);font-size:.78rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--think-ink);margin:0 0 .35rem}
+.think-q{font-style:italic}
+.think-q > :last-child,.think-a > :last-child,.recap-body > :last-child{margin-bottom:0}
+.recap{margin-top:2.6rem}
+.recap-body > p:first-child{font-size:1.25rem;line-height:1.5}
+.recap-body ul{margin-top:.2rem}
+.think details{margin-top:.7rem}
+.think summary{font-family:var(--sans);font-size:.85rem;font-weight:500;color:var(--think-ink);cursor:pointer;width:max-content}
+.think summary:hover{text-decoration:underline}
+.think-a{margin-top:.5rem;padding-top:.55rem;border-top:1px solid var(--think-rule);font-size:1.06rem}
+
+/* Elaboration */
+.elab{margin:1.4rem 0 1.7rem;padding:.85rem 1.2rem 1rem;border-left:3px solid var(--accent);background:var(--note);border-radius:0 10px 10px 0}
+.elab.enter{animation:unfold .28s ease-out}
+@keyframes unfold{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:none}}
+.elab-head{display:flex;align-items:center;gap:.75rem;font-family:var(--sans);font-size:.8rem;color:var(--muted);margin-bottom:.4rem}
+.elab-head span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.elab-close{border:0;background:none;color:var(--muted);font-size:1.15rem;line-height:1;padding:.15rem .35rem;border-radius:4px}
+.elab-close:hover{color:var(--ink)}
+.elab-body{font-size:1.06rem;line-height:1.58}
+.elab-body > :last-child{margin-bottom:0}
+.elab-body h3{margin-top:.2rem;font-size:1.08rem}
+.elab-body .err{color:var(--err);font-family:var(--sans);font-size:.88rem}
+
+/* Notes */
+.notes-hint{font-family:var(--sans);font-size:.86rem;color:var(--faint);line-height:1.5;margin:.15rem .2rem 0}
+.note{display:flex;flex-direction:column;gap:.45rem;margin-bottom:1.5rem}
+.bubble{max-width:94%;padding:.62rem .85rem;border-radius:14px;line-height:1.45}
+.bubble.q{align-self:flex-end;background:var(--surface);border:1px solid var(--rule);border-bottom-right-radius:4px;font-family:var(--sans);font-size:.86rem}
+.bubble.q .quote{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden;font-family:var(--serif);font-style:italic;font-size:.98rem;color:var(--muted);border:0;background:none;padding:0;margin:0 0 .2rem;text-align:left;cursor:pointer;line-height:1.4}
+.bubble.q .quote:hover{color:var(--ink)}
+.bubble.a{align-self:flex-start;background:var(--note);border-bottom-left-radius:4px;font-size:1.02rem}
+.bubble.a p{margin:0 0 .5em}
+.bubble.a > :last-child{margin-bottom:0}
+.bubble.a .katex-display{margin:.5rem 0}
+.bubble.err{font-family:var(--sans);font-size:.86rem;color:var(--err)}
+.dots{display:inline-flex;gap:.28rem;padding:.3rem 0}
+.dots i{width:.38rem;height:.38rem;border-radius:50%;background:var(--muted);animation:pulse 1.1s ease-in-out infinite}
+.dots i:nth-child(2){animation-delay:.15s}.dots i:nth-child(3){animation-delay:.3s}
+
+/* Follow-up box */
+#followup{flex:none;display:flex;gap:.35rem;align-items:flex-end;padding:.7rem 1rem max(.85rem,env(safe-area-inset-bottom));border-top:1px solid var(--rule);background:var(--paper2);font-family:var(--sans);font-size:.85rem}
+#followup textarea{flex:1;min-width:0;font:inherit;line-height:1.4;padding:.45rem .6rem;border:1px solid var(--rule);border-radius:8px;background:var(--paper);color:var(--ink);resize:none;overflow-y:auto;max-height:calc(1.4em * 5 + .9rem + 2px)}
+#followup textarea:focus{outline:none;border-color:var(--accent)}
+#followup textarea::placeholder{color:var(--faint)}
+#followup textarea:disabled{opacity:.6;cursor:not-allowed}
+#followup button{border:1px solid transparent;background:var(--accent);color:var(--on-accent);border-radius:8px;padding:.45rem .8rem;font-weight:500;line-height:1.4}
+#followup button:disabled{opacity:.45;cursor:default}
+.bubble.q .qtext{white-space:pre-wrap}
+
+/* Selection popup */
+#popup{position:absolute;z-index:30;width:min(21rem,calc(100vw - 1rem));background:var(--surface);border:1px solid var(--rule);border-radius:12px;box-shadow:0 10px 30px -14px rgba(18,28,48,.45),0 1px 2px rgba(18,28,48,.08);padding:.5rem;font-family:var(--sans);font-size:.85rem}
+#popup[hidden]{display:none}
+.pop-actions{display:flex;gap:.35rem;margin-bottom:.4rem}
+.pop-actions button{flex:1;min-width:0;white-space:nowrap;padding:.45rem .35rem;border:1px solid var(--rule);background:var(--paper);border-radius:8px;font-weight:500}
+.pop-actions button:hover{border-color:var(--accent);color:var(--accent)}
+.pop-ask{display:flex;gap:.35rem}
+.pop-ask input{flex:1;min-width:0;font:inherit;padding:.45rem .6rem;border:1px solid var(--rule);border-radius:8px;background:var(--paper);color:var(--ink)}
+.pop-ask input:focus{outline:none;border-color:var(--accent)}
+.pop-ask button{border:0;background:var(--accent);color:var(--on-accent);border-radius:8px;padding:.45rem .8rem;font-weight:500}
+
+/* Dialog */
+dialog{border:1px solid var(--rule);border-radius:14px;padding:0;background:var(--surface);color:var(--ink);width:min(31rem,calc(100vw - 2rem));font-family:var(--sans);font-size:.9rem;box-shadow:0 24px 60px -24px rgba(18,28,48,.5)}
+dialog::backdrop{background:rgba(14,18,28,.38)}
+.dlg{padding:1.4rem 1.5rem .6rem}
+.dlg h2{font-family:var(--serif);font-weight:500;font-size:1.55rem;margin:0 0 1rem}
+.seg{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--rule);border-radius:10px;padding:3px;gap:3px;margin-bottom:1.1rem}
+.seg button{border:0;background:none;border-radius:7px;padding:.5rem;font-weight:500;color:var(--muted)}
+.seg button[aria-selected="true"]{background:var(--note);color:var(--ink)}
+.panel[hidden]{display:none}
+.field{display:flex;flex-direction:column;gap:.35rem;margin-bottom:.9rem}
+.field label{font-weight:500;font-size:.82rem;color:var(--muted);display:flex;justify-content:space-between}
+.field label a{color:var(--accent);font-weight:400}
+.field input,.field select{font:inherit;padding:.55rem .65rem;border:1px solid var(--rule);border-radius:8px;background:var(--paper);color:var(--ink);width:100%}
+.field input:focus,.field select:focus{outline:none;border-color:var(--accent)}
+.btn{border:0;background:var(--accent);color:var(--on-accent);border-radius:9px;padding:.6rem 1rem;font-weight:500}
+.btn.ghost{background:none;border:1px solid var(--rule);color:var(--ink)}
+.btn.quiet{background:none;border:0;color:var(--muted);padding:.6rem .4rem}
+.btn.quiet:hover{color:var(--err)}
+.small{font-size:.8rem;color:var(--muted);line-height:1.5;margin:.2rem 0 .9rem}
+.msg{font-size:.82rem;min-height:1.2em;margin:.1rem 0 .8rem;color:var(--muted)}
+.msg.ok{color:var(--ok)} .msg.bad{color:var(--err)}
+.dlg-foot{display:flex;justify-content:space-between;align-items:center;border-top:1px solid var(--rule);padding:.8rem 1.5rem;gap:.75rem;margin-top:.4rem}
+.dlg-foot .right{display:flex;gap:.5rem;margin-left:auto}
+
+@media (max-width:900px){
+  main{grid-template-columns:1fr}
+  #notes-pane{position:static;height:auto;min-height:10rem;border-left:0;border-top:1px solid var(--rule);overflow:visible}
+  #notes-list{overflow:visible;padding-bottom:1rem}
+  /* Sticky inside the pane: pinned to the viewport bottom only while the pane is on screen. */
+  #followup{position:sticky;bottom:0;z-index:5}
+  .note{scroll-margin-bottom:5rem}
+  header.top{flex-wrap:wrap;padding:.7rem 1rem;gap:.6rem}
+  #ask-form{order:2;flex-basis:100%}
+  .tools{order:1}
+  #ask-form{flex-wrap:wrap}
+  #ask-form label,#q{flex-basis:100%}
+  .level-wrap{margin-left:auto}
+  .prose .dek{font-size:1.2rem}
+  #ask-form label,#q{font-size:1.25rem}
+  .prose{font-size:1.125rem}
+  .prose h1{font-size:1.95rem}
+  #doc-pane{padding-top:1.75rem}
+}
+@media (prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+
+/* ChatGPT connection */
+.connect{font-family:var(--sans);font-size:.85rem;font-weight:500;padding:.5rem 1.05rem;border-radius:999px;background:var(--ink);color:var(--paper);text-decoration:none;white-space:nowrap;border:0}
+.connect:hover{opacity:.88}
+.connect[hidden],.chip[hidden]{display:none}
+.acct-email{font-weight:500;margin:0 0 .2rem}
+.small a,.msg a{color:var(--accent)}
+.field select{appearance:auto}
+#status a{color:inherit;text-decoration:underline}
+
+/* Footer */
+.site-foot{margin-top:auto;padding-top:5rem;font-family:var(--sans);font-size:.72rem;line-height:1.5;color:var(--faint);text-align:center}
+.site-foot a{color:inherit;text-decoration-thickness:1px;text-underline-offset:.15em}
+.site-foot a:hover{color:var(--muted)}
+
+/* Sign-in gate */
+main[hidden],#gate[hidden],.gate-btn[hidden],.gate-msg[hidden]{display:none}
+#gate{min-height:calc(100vh - var(--hdr));display:flex;flex-direction:column;align-items:center;padding:2rem 16px 1.5rem}
+.gate-box{margin:auto 0;max-width:28rem;display:flex;flex-direction:column;align-items:center;gap:1.5rem;text-align:center}
+.gate-copy{margin:0;font-size:1.3rem;line-height:1.5;color:var(--muted);text-wrap:balance}
+.gate-btn{font-family:var(--sans);font-size:1rem;font-weight:500;padding:.85rem 1.9rem;border-radius:999px;background:var(--ink);color:var(--paper);text-decoration:none}
+.gate-btn:hover{opacity:.88}
+.gate-msg{margin:0;font-family:var(--sans);font-size:.88rem;line-height:1.5;color:var(--err)}
+</style>
+</head>
+<body>
+<header class="top" id="hdr">
+  <form id="ask-form" autocomplete="off">
+    <label for="q">Let AI explain</label>
+    <input id="q" type="text" placeholder="something — a topic, a link, or pasted text" spellcheck="false">
+    <span class="level-wrap">
+      <select id="level" aria-label="Explanation level">
+        <option value="simple" title="for someone new to this">simply</option>
+        <option value="standard" title="for a curious learner" selected>clearly</option>
+        <option value="expert" title="for someone in the field">expertly</option>
+      </select>
+    </span>
+    <button class="go" type="submit">Go</button>
+    <button class="go refs-btn" id="refs-btn" type="button" aria-pressed="false" disabled title="No references yet">References<span class="count" hidden></span></button>
+  </form>
+  <div class="tools">
+    <a class="connect" id="connect-btn" href="/auth/start" hidden>Continue with ChatGPT</a>
+    <div class="export-wrap">
+      <button class="chip" id="export-btn" type="button" disabled aria-haspopup="menu" aria-expanded="false" aria-controls="export-menu">Export</button>
+      <div class="export-menu" id="export-menu" role="menu" hidden>
+        <button type="button" role="menuitem" data-fmt="html">HTML file</button>
+        <button type="button" role="menuitem" data-fmt="pdf">PDF</button>
+      </div>
+    </div>
+    <button class="chip" id="acct-btn" type="button" hidden><span class="dot"></span><span id="acct-label">Using ChatGPT plan</span></button>
+    <button class="icon-btn" id="theme-btn" type="button" aria-label="Toggle dark mode">
+      <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6.25" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M8 1.75a6.25 6.25 0 0 1 0 12.5z" fill="currentColor"/></svg>
+    </button>
+  </div>
+</header>
+
+<section id="gate" aria-label="Sign in" hidden>
+  <div class="gate-box">
+    <p class="gate-copy" id="gate-copy"></p>
+    <a class="gate-btn" id="gate-btn" href="/auth/start">Continue with ChatGPT</a>
+    <p class="gate-msg" id="gate-msg" role="alert" hidden></p>
+  </div>
+  <footer class="site-foot">Built by <a href="https://www.linkedin.com/in/viyaleta/" target="_blank" rel="noopener">Viyaleta Apgar</a> · <a href="https://github.com/viyaleta/let-ai-explain/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a> · <a href="https://github.com/viyaleta/let-ai-explain" target="_blank" rel="noopener">GitHub</a> · <a href="https://www.linkedin.com/in/viyaleta/" target="_blank" rel="noopener">LinkedIn</a></footer>
+</section>
+
+<main hidden>
+  <section id="doc-pane" aria-label="Explanation">
+    <p id="status" role="status" hidden><span class="pulse"></span><span id="status-text"></span><button type="button" class="stop-btn" id="main-stop" hidden>Stop</button></p>
+    <div id="empty">
+      <p class="lede">Type a topic, or paste a link or a passage of text. Then select any word or passage in the explanation to ask about it.</p>
+      <p class="ex-label">Try one</p>
+      <ul class="examples">
+        <li><button type="button" data-ex="Heisenberg uncertainty principle">Heisenberg uncertainty principle</button></li>
+        <li><button type="button" data-ex="https://en.wikipedia.org/wiki/Hamiltonian_mechanics">en.wikipedia.org/wiki/Hamiltonian_mechanics</button></li>
+        <li><button type="button" data-ex="https://arxiv.org/abs/1706.03762">arxiv.org/abs/1706.03762</button></li>
+      </ul>
+    </div>
+    <article id="article" class="prose"></article>
+    <section id="refs" class="refs" aria-label="References" hidden></section>
+    <div class="deeper" id="deeper" hidden>
+      <p class="deeper-status" id="deeper-status" role="status" hidden><span class="pulse"></span><span id="deeper-text"></span><button type="button" class="stop-btn" id="deeper-stop">Stop</button></p>
+      <div class="deeper-row" id="deeper-row">
+        <button type="button" class="deeper-go" id="deeper-go">Go deeper</button>
+        <span class="deeper-row" id="deeper-chips"></span>
+      </div>
+    </div>
+    <footer class="site-foot">Built by <a href="https://www.linkedin.com/in/viyaleta/" target="_blank" rel="noopener">Viyaleta Apgar</a> · <a href="https://github.com/viyaleta/let-ai-explain/blob/main/LICENSE" target="_blank" rel="noopener">MIT License</a> · <a href="https://github.com/viyaleta/let-ai-explain" target="_blank" rel="noopener">GitHub</a> · <a href="https://www.linkedin.com/in/viyaleta/" target="_blank" rel="noopener">LinkedIn</a></footer>
+  </section>
+  <aside id="notes-pane" aria-label="Margin notes">
+    <div id="notes-list"></div>
+    <form id="followup" autocomplete="off">
+      <textarea id="followup-input" rows="1" placeholder="Explain something first" aria-label="Ask a follow-up question" disabled></textarea>
+      <button type="submit" id="followup-btn" disabled>Ask</button>
+    </form>
+  </aside>
+</main>
+
+<div id="popup" hidden>
+  <div class="pop-actions">
+    <button type="button" data-act="explain">Explain this</button>
+    <button type="button" data-act="elaborate">Elaborate</button>
+    <button type="button" data-act="visualize">Visualize</button>
+  </div>
+  <form class="pop-ask" id="pop-ask">
+    <input id="pop-input" type="text" placeholder="Ask about this…" aria-label="Question about the selected text">
+    <button type="submit">Ask</button>
+  </form>
+</div>
+
+<dialog id="lightbox" aria-label="Enlarged figure"><div class="lb-body"></div></dialog>
+
+<dialog id="acct" aria-labelledby="acct-title">
+  <div class="dlg">
+    <h2 id="acct-title">ChatGPT connection</h2>
+    <p class="acct-email" id="acct-email"></p>
+    <p class="msg ok" id="acct-plan">ChatGPT plan usage is enabled.</p>
+    <p class="msg bad" id="acct-noplan" hidden>ChatGPT plan usage isn’t enabled for this connection. <a href="/auth/start?reconsent=1">Allow it in ChatGPT</a></p>
+    <div class="field" id="model-field">
+      <label for="model">Model</label>
+      <select id="model"></select>
+    </div>
+    <p class="small">Requests from Let AI Explain count toward your ChatGPT plan. <a href="https://chatgpt.com/settings/usage" target="_blank" rel="noopener">Manage usage</a></p>
+  </div>
+  <div class="dlg-foot">
+    <button class="btn quiet" type="button" id="signout">Sign out</button>
+    <div class="right"><button class="btn ghost" type="button" id="dlg-done">Done</button></div>
+  </div>
+</dialog>
+
+<script>
+(() => {
+'use strict';
+
+/* ---------------- Utilities ---------------- */
+const $ = (s, r = document) => r.querySelector(s);
+const $$ = (s, r = document) => [...r.querySelectorAll(s)];
+const PREFIX = 'let-ai-explain:';
+// One-time copy of settings saved under the pre-rename prefix.
+try {
+  for (const k of ['theme', 'model', 'level']) {
+    const old = localStorage.getItem('explainit:' + k);
+    if (old === null) continue;
+    if (localStorage.getItem(PREFIX + k) === null) localStorage.setItem(PREFIX + k, old);
+    localStorage.removeItem('explainit:' + k);
+  }
+} catch {}
+const lsGet = k => { try { return localStorage.getItem(PREFIX + k); } catch { return null; } };
+const lsSet = (k, v) => { try { localStorage.setItem(PREFIX + k, v); } catch {} };
+const ssGet = k => { try { return sessionStorage.getItem(PREFIX + k); } catch { return null; } };
+const ssSet = (k, v) => { try { sessionStorage.setItem(PREFIX + k, v); } catch {} };
+const ssDel = k => { try { sessionStorage.removeItem(PREFIX + k); } catch {} };
+function h(tag, attrs = {}, ...kids) {
+  const e = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs)) {
+    if (k === 'class') e.className = v;
+    else if (k === 'text') e.textContent = v;
+    else if (k.startsWith('on')) e.addEventListener(k.slice(2), v);
+    else e.setAttribute(k, v);
+  }
+  for (const k of kids) if (k != null) e.append(k);
+  return e;
+}
+const squash = s => String(s || '').replace(/\s+/g, ' ').trim();
+const truncate = (s, n) => { s = squash(s); return s.length > n ? s.slice(0, n - 1).trimEnd() + '…' : s; };
+const dotsEl = () => h('span', { class: 'dots', 'aria-label': 'Thinking' }, h('i'), h('i'), h('i'));
+const wordCount = s => (String(s).match(/\S+/g) || []).length;
+
+/* ---------------- Theme ---------------- */
+const mq = matchMedia('(prefers-color-scheme: dark)');
+function isDark() { const t = document.documentElement.dataset.theme; return t ? t === 'dark' : mq.matches; }
+function applyTheme(t) {
+  if (t) document.documentElement.dataset.theme = t; else delete document.documentElement.dataset.theme;
+  $('#theme-btn').setAttribute('aria-label', isDark() ? 'Switch to light mode' : 'Switch to dark mode');
+  initMermaid(); redrawDiagrams(); redrawCharts();
+}
+$('#theme-btn').addEventListener('click', () => { const t = isDark() ? 'light' : 'dark'; lsSet('theme', t); applyTheme(t); });
+mq.addEventListener('change', () => { if (!lsGet('theme')) applyTheme(null); });
+
+/* ---------------- Mermaid ---------------- */
+let mmdSeq = 0;
+function initMermaid() {
+  if (!window.mermaid) return;
+  mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: isDark() ? 'dark' : 'neutral',
+    fontFamily: '"Instrument Sans", system-ui, sans-serif', flowchart: { htmlLabels: false } });
+}
+async function drawDiagram(fig) {
+  const id = 'mmd' + (++mmdSeq);
+  try { const { svg } = await mermaid.render(id, fig.dataset.src); fig.innerHTML = svg; }
+  catch (e) {
+    for (const x of [document.getElementById('d' + id), document.getElementById(id)]) if (x && x.parentElement === document.body) x.remove();
+    throw e;
+  }
+}
+async function redrawDiagrams() { for (const fig of $$('figure.diagram:not(.broken)')) { try { await drawDiagram(fig); } catch {} } }
+
+/* ---------------- Local server + ChatGPT session ---------------- */
+class AppError extends Error { constructor(code, message) { super(message || code); this.code = code; } }
+const api = (path, opts = {}) => fetch(path, { ...opts, headers: { 'X-Let-AI-Explain': '1', ...(opts.headers || {}) } });
+async function apiError(r) { const j = await r.json().catch(() => ({})); return new AppError(j.error || 'http_' + r.status, j.message); }
+
+let session = { connected: false, sharing: false }, models = [];
+const currentModel = () => { const m = lsGet('model'); return models.find(x => x.slug === m) ? m : (models[0]?.slug || m || ''); };
+
+async function refreshSession() {
+  let checkError = '';
+  try {
+    const r = await api('/api/session');
+    if (r.ok) session = await r.json();
+    else {
+      // Don't mistake a refused check (e.g. a stale server) for "signed out".
+      const j = await r.json().catch(() => ({}));
+      checkError = `Couldn’t check your sign-in (HTTP ${r.status} ${j.error || r.statusText || 'error'}).`
+        + (r.status === 403 ? ' If the server was started before an update, restart it with: python3 let_ai_explain.py' : '');
+      session = { connected: false, checkFailed: true };
+    }
+  }
+  catch { session = { connected: false, offline: true }; }
+  renderAccount();
+  if (checkError) setStatus(checkError, true);
+  else if (statusEl.classList.contains('error') && /^Couldn’t check your sign-in/.test($('#status-text').textContent)) setStatus(null);
+  if (session.connected && session.sharing) await loadModels();
+}
+async function loadModels() {
+  try {
+    const r = await api('/api/models');
+    if (!r.ok) throw await apiError(r);
+    models = (await r.json()).models || [];
+  } catch (e) {
+    console.warn('Model list failed', e);
+    if (['session_expired', 'not_signed_in'].includes(e.code)) session = { connected: false };
+  }
+  renderAccount();
+}
+// Centered screen shown instead of the panes when the app can't be used yet.
+const GATE = {
+  offline: { copy: 'Can’t reach the Let AI Explain server. Start it with: python3 let_ai_explain.py' },
+  signin: { copy: 'Sign in with your ChatGPT account to start explaining things. Requests use your ChatGPT plan.',
+    label: 'Continue with ChatGPT', href: '/auth/start' },
+  noplan: { copy: 'You’re signed in, but ChatGPT plan usage wasn’t allowed. Allow it to start explaining things.',
+    label: 'Allow ChatGPT plan usage', href: '/auth/start?reconsent=1' }
+};
+let gateMsg = '', sessionReady = Promise.resolve();
+const gateMode = () => session.checkFailed ? null : session.offline ? 'offline' : !session.connected ? 'signin' : !session.sharing ? 'noplan' : null;
+function renderGate() {
+  const mode = gateMode(), g = GATE[mode];
+  $('#gate').hidden = !g; $('main').hidden = !!g;
+  if (!g) return;
+  $('#popup').hidden = true;
+  $('#gate-copy').textContent = g.copy;
+  const btn = $('#gate-btn');
+  btn.hidden = !g.href;
+  if (g.href) { btn.textContent = g.label; btn.setAttribute('href', g.href); }
+  const msg = mode === 'offline' ? '' : gateMsg;
+  $('#gate-msg').textContent = msg; $('#gate-msg').hidden = !msg;
+}
+// Remember what's in the search bar, then leave for the sign-in / consent flow.
+function startAuth(href) {
+  const q = $('#q').value.trim();
+  if (q) ssSet('pending', q); else ssDel('pending');
+  location.href = href;
+}
+function renderAccount() {
+  const on = !!session.connected;
+  renderGate();
+  $('#connect-btn').hidden = on || !$('#gate').hidden || !!session.checkFailed;
+  $('#acct-btn').hidden = !on;
+  const m = models.find(x => x.slug === currentModel());
+  $('#acct-label').textContent = session.sharing ? 'Using ChatGPT plan' + (m ? ' · ' + m.name : '') : 'Plan usage off';
+  $('#acct-btn').classList.toggle('on', !!session.sharing);
+  $('#acct-email').textContent = session.email || '';
+  $('#acct-plan').hidden = !session.sharing;
+  $('#acct-noplan').hidden = !on || !!session.sharing;
+  $('#model-field').hidden = !session.sharing;
+  const sel = $('#model');
+  sel.replaceChildren(...models.map(x => h('option', { value: x.slug, text: x.name })));
+  sel.value = currentModel();
+}
+$('#connect-btn').addEventListener('click', e => { e.preventDefault(); startAuth('/auth/start'); });
+$('#gate-btn').addEventListener('click', e => { e.preventDefault(); startAuth($('#gate-btn').getAttribute('href')); });
+$('#acct-btn').addEventListener('click', () => { renderAccount(); $('#acct').showModal(); });
+$('#dlg-done').addEventListener('click', () => $('#acct').close());
+$('#model').addEventListener('change', () => { lsSet('model', $('#model').value); renderAccount(); });
+$('#signout').addEventListener('click', async () => {
+  try { await api('/api/signout', { method: 'POST' }); } catch {}
+  $('#acct').close(); models = []; await refreshSession();
+});
+
+// Ask the model through the local server; streams text and resolves only on a completed response.
+async function callLLM({ system, user, signal, onText }) {
+  if (!session.connected) throw new AppError('not_signed_in');
+  if (!session.sharing) throw new AppError('plan_usage_not_enabled');
+  const r = await api('/api/respond', {
+    method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model: currentModel(), instructions: system, input: user })
+  });
+  if (!r.ok) throw await apiError(r);
+  const reader = r.body.getReader(), dec = new TextDecoder();
+  let buf = '', text = '', done = false;
+  for (;;) {
+    const { value, done: end } = await reader.read();
+    if (end) break;
+    buf += dec.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+      if (!line) continue;
+      let ev; try { ev = JSON.parse(line); } catch { continue; }
+      if (typeof ev.delta === 'string') { text += ev.delta; onText?.(text); }
+      else if (ev.done) done = true;
+      else if (ev.error) throw new AppError(ev.error, ev.message);
+    }
+  }
+  if (!done) throw new AppError('interrupted');
+  return text;
+}
+
+const COPY = {
+  not_signed_in: 'Continue with ChatGPT to sign in first.',
+  session_expired: 'Your ChatGPT session ended. Continue with ChatGPT to sign in again.',
+  plan_usage_not_enabled: 'ChatGPT plan usage isn’t enabled. Open the account menu to allow it.',
+  subscription_sharing_usage_limit_exceeded: 'You’ve reached the ChatGPT plan usage limit for this app. Review it under Manage usage in the account menu.',
+  subscription_sharing_usage_unavailable: 'ChatGPT couldn’t check your plan usage right now. Try again in a minute.',
+  subscription_sharing_user_not_eligible: 'ChatGPT plan usage isn’t available for this account or workspace.',
+  subscription_sharing_user_unavailable: 'ChatGPT account info is temporarily unavailable. Try again in a minute.',
+  subscription_sharing_invalid_user: 'ChatGPT couldn’t validate this account. Sign out and continue with ChatGPT again.',
+  subscription_sharing_unsupported_capability: 'This model doesn’t support that request with plan usage. Pick another model in the account menu.',
+  incomplete: 'The answer was cut off before it finished. Try again.',
+  interrupted: 'The connection dropped before the answer finished. Try again.',
+  no_model: 'Choose a model in the account menu first.',
+  upstream_unreachable: 'Couldn’t reach OpenAI. Check your internet connection.'
+};
+function friendlyError(e) {
+  if (e?.name === 'AbortError') return null;
+  if (e instanceof TypeError && /fetch|network|load failed/i.test(e.message || '')) return 'Can’t reach the Let AI Explain server. Is let_ai_explain.py still running?';
+  if (['session_expired', 'not_signed_in', 'subscription_sharing_invalid_user'].includes(e?.code)) refreshSession();
+  if (e?.code && COPY[e.code]) return COPY[e.code];
+  if (e?.code === 'http_403') return 'OpenAI didn’t allow this request' + (e.message && e.message !== e.code ? ': ' + e.message : '.');
+  if (e?.code === 'http_503') return 'ChatGPT plan usage is temporarily unavailable. Try again shortly.';
+  return (e?.message && e.message !== e.code ? e.message : 'Something went wrong') + (e?.code ? ` (${e.code})` : '');
+}
+
+/* ---------------- Prompts ---------------- */
+const FORMAT_RULES = `
+Math: use LaTeX with inline $...$ and display $$...$$ (put display math on its own lines). Only KaTeX-supported commands. Never put math inside code blocks. Never use $ for currency; write "USD" instead.
+Diagrams and charts (only when they clearly help; at most 2):
+- Mermaid in a \`\`\`mermaid fenced block (flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, timeline or mindmap). Always wrap node labels in double quotes, e.g. A["Measure position"] --> B["Momentum spread grows"]. No LaTeX inside Mermaid.
+- A Plotly chart in a \`\`\`plotly fenced block for graphs of functions or data. The block holds only JSON: {"data": [traces], "layout": {...}}. Plain JSON with no JavaScript or functions: compute the points yourself (at most about 200 per trace). Give it a short title and labeled axes. Don't set colors, fonts, width or height.
+- Or a self-contained SVG in a \`\`\`svg fenced block for geometric or physical sketches: include a viewBox, use currentColor for strokes and text, plain text labels, no scripts, no external references.`;
+
+// Appended to every explanation prompt, with FORMAT_RULES.
+const VISUAL_RULES = `Visuals:
+- When the reader asks to see something (show, picture, image, graphic, diagram, chart, "what does X look like"), the answer must contain a visual plus 1–2 sentences of explanation. Never answer such a request with words only.
+- Pick the best visual, in this order: (a) a figure from AVAILABLE IMAGES if one matches; (b) an image search, if a real photo, a real figure or a famous diagram is wanted; (c) Mermaid for structure or flow; (d) Plotly for graphs of functions or data; (e) SVG for geometric or physical sketches.
+- Embed AVAILABLE IMAGES with ![short caption](exact url). Never invent image URLs or use any URL not in that list.
+- Image search: write a fenced block with the language "image-search" holding only JSON, e.g. {"query": "transformer neural network architecture diagram", "count": 1}. count is 1–3. Use specific, descriptive English terms. The app finds matching images on Wikimedia Commons and credits them.
+- Never draw diagrams, charts or tables with ASCII art, box-drawing characters or arrow characters in code blocks.`;
+
+// Appended to every explanation prompt (main, deeper, elaborate and the margin answers) by withLevel.
+const DEPTH_RULES = `Depth: no over-explaining, no under-explaining.
+- Explain each concept once, at the point it's first needed. Don't re-explain it later; refer back to it in a few words. Anything the document or the existing explanation already explained counts as explained.
+- Assume what the reader at the level named under READER LEVEL already knows, and don't define those things:
+  - Simple: everyday life and basic arithmetic.
+  - Standard: high-school math and science, and the common vocabulary of the field.
+  - Expert: graduate-level background in the field.
+  Everything beyond that must be explained before it's used.
+- Don't skip intermediate steps: if a conclusion depends on an idea the reader doesn't have yet, explain that idea first, briefly.
+- Every sentence should either add something new or connect two ideas. Cut restatements, repeated summaries mid-text, hedging filler, and "in other words" rephrasings of something already clear.
+- Word ranges are ceilings, not targets. A simple topic gets a short explanation.
+- Before finishing, silently check for (a) a term used before it's explained, (b) a concept explained twice, and (c) a paragraph that only restates. Fix them.`;
+
+// Main explanation and Go deeper only. Markers and the refs block are verified and renumbered by the app.
+const REFS_RULES = `References:
+- Put citation markers like [1] or [2] in the text where a specific claim, number, result or piece of history comes from a source. Use them sparingly: only where a reader might want to check. Place a marker right after its claim, before the punctuation, e.g. "...first measured in 1927 [2]."
+- Never put markers in headings, the title, the summary paragraph, math, code, diagrams, or the recap and next blocks. Use square-bracketed numbers only for citations (write vectors, lists and indices as math).
+- If the explanation came from a source (a Wikipedia article, a page, a paper or pasted text), reference 1 is always that source, and claims taken from it cite [1].
+- Never invent references. Only cite works you're confident exist, and prefer well-known canonical sources (original papers, standard textbooks, Wikipedia, official docs). Fewer, real references beat many uncertain ones. Use 0–6 references; unverifiable ones are dropped.
+- After the recap block and before the next block, write a fenced code block with the language "refs" containing only a JSON array of objects: {"id": 1, "type": "source" | "paper" | "book" | "web", "title": "...", "authors": ["..."], "year": 2017, "url": "...", "doi": "..."}. Include only fields that are known; never guess a URL or DOI. With no references, write [].`;
+
+const MAIN_SYSTEM = `You are an excellent teacher writing for a curious, intelligent reader who is meeting this topic for the first time, with the background described under READER LEVEL below. Build understanding in the order this reader needs to discover it, not the order an expert would summarize it. Your goal is to help the reader construct a mental model, not to transfer facts.
+Output GitHub-flavored Markdown only, with no preamble and no closing remarks besides the recap, refs and next blocks described below.
+Start with a single "# " title. Right after the title, write a 1–2 sentence summary paragraph (at most 40 words) that says plainly what the topic is and what it's about. It comes before the "why" opening, and uses no math and no jargon the reader hasn't met yet.
+Then build the explanation in this order, using "## " sections:
+1. The problem. Open with WHY: the concrete question or situation the idea exists to solve, before any definitions. Keep this hook to 2–3 sentences. Vary how you open, choosing whatever best fits the topic: a concrete scene, a surprising fact, a question, or a small puzzle. Don't always start the same way.
+2. The intuition. Introduce your one anchor example: a single concrete case, tied to something the reader already knows, that you will carry through the whole explanation (for the Hamiltonian, one pendulum that goes all the way from intuition to equations). Give it only as much space as the next idea needs.
+3. The connection. Extend the anchor one step toward the new idea.
+4. The concept. Name the main concept as soon as the intuition makes the name meaningful, within roughly the first quarter of the explanation. Then introduce one new idea or term at a time, and never use a term before the reader understands what it describes. Each idea should feel like a natural consequence of the one before it.
+5. The deeper layer. Then add the formal definitions, math and notation, edge cases, and where the anchor stops being a faithful picture, worked in terms of the same anchor wherever possible.
+One anchor example: keep returning to the same example and deepen it as each idea is added: put numbers on it, write its equations, push it to its extremes. Add at most one other example in the whole explanation, and only where the anchor genuinely can't show something. Never switch to a parallel analogy that makes the same point again.
+Ideas lead, examples serve: every paragraph must add a new idea or step of reasoning. State the idea, then ground it in the anchor in a sentence or two. The example illustrates the idea; it is not the content. No long scene-setting before an idea appears.
+Style: start at most one paragraph with "Imagine", "Think of" or "Picture"; otherwise vary the phrasing or just state things directly. No filler transitions that restate the previous paragraph.
+Keep the structure invisible. Never name these steps in the text, and don't signpost them (no "Now for the intuition" or "Let's go deeper").
+Headings: every "## " heading must be specific to this topic and say what its section is about (for example "Why the bakery can't keep all 100 USD", not "A little more about how it works"). Never use generic stock headings such as "Why it matters", "The deeper layer", "How it works", "A little more about…", "Key takeaways" or "In summary", and never use labels like "Step 1". Headings use no jargon the reader hasn't met yet.
+Keep it as simple as the reader level allows, but never misleading. Make no simplifications the reader will have to unlearn later. If the anchor example has limits, say so in the deeper part.
+Keep paragraphs short (2–5 sentences). Follow the math guidance under READER LEVEL, and treat its length as a ceiling, not a target. Unless READER LEVEL says otherwise, put most of the math in the deeper part and let earlier sections rely on words, the anchor example and pictures. At Expert level, keep the intuition and the example brief and spend most of the length on the substance.
+Recap: near the end, write exactly one fenced code block with the language "recap", with no heading of its own. Its content is Markdown:
+- First, one or two sentences that state the core idea plainly, as if the reader had to explain it to a friend in one breath.
+- Then 3–5 short bullets, each naming one key concept in **bold** followed by a plain one-line meaning, in the order the explanation built them up.
+- No new information, no questions, no citation markers, and no math beyond what already appeared. Match the reader level: everyday words for Simple; precise terms are fine for Expert.
+Format:
+\`\`\`recap
+<the core idea in one or two sentences>
+
+- **<concept>**: <plain one-line meaning>
+\`\`\`
+Next: after the recap and the refs block, end the output with a fenced code block with the language "next" containing only a JSON array of exactly 3 short strings (2–6 words each). They are specific directions for going deeper that build on what you explained, worded for the reader level, for example ["The math behind attention", "Why multiple heads help", "How it's trained"]. Nothing comes after it.
+Images: if an AVAILABLE IMAGES list is provided, you may embed the most useful ones (at most 3) with their exact URLs: ![short caption](url). Never invent image URLs.
+Source material: when given a source (a Wikipedia article, a page or pasted text), use the same approach to explain THAT material faithfully and more accessibly, keeping its key terms so the reader can map back to it.
+${REFS_RULES}`;
+
+// Appended to every explanation prompt (main and side answers).
+const TANGIBLE_RULES = `Make it tangible (at every level):
+- Ground abstract ideas in a single anchor example: the explanation's own anchor, or in a margin answer the example the document already uses when it fits. Concreteness means specifics inside that example: real numbers, what you'd actually measure or observe, what happens at the extremes. It does not mean adding new stories or parallel analogies.
+- Explain what is actually happening, not just what it's called. Name a concept once the reader has enough intuition for the name to mean something, then state the idea directly.
+- State the idea first, then ground it in the example in a sentence or two. Avoid long scene-setting before the idea appears.
+- Use order-of-magnitude numbers to make scale real: how big, how fast, how often.
+- Be honest about what's unknown or approximate. Don't hide gaps behind jargon.
+- At Expert level, concreteness means worked cases of the anchor, limiting cases, sanity checks and physical interpretations of the math, not simplification; keep intuition brief.`;
+
+// main: the full explanation. side: Explain this, Ask, Elaborate and follow-ups (they keep their own length limits).
+const LEVEL_RULES = {
+  simple: {
+    label: 'Simple',
+    main: `Assume only everyday life and basic arithmetic. Use everyday words and familiar objects, and define in plain language every term beyond that. Avoid equations in the body; one very simple equation is allowed in the deeper layer if it truly helps. Keep the deeper layer short. Length: at most about 400–700 words.`,
+    side: `Assume only everyday life and basic arithmetic. Use everyday words and familiar objects, define in plain language any term beyond that, and avoid equations.`
+  },
+  standard: {
+    label: 'Standard',
+    main: `Assume a curious adult with high-school math and science and the common vocabulary of the field. Introduce other terms gradually, and keep math mainly in the deeper layer. Length: at most about 700–1400 words.`,
+    side: `Assume a curious adult with high-school math and science and the common vocabulary of the field. Introduce any other term before relying on it, and keep math light.`
+  },
+  expert: {
+    label: 'Expert',
+    main: `Assume graduate-level background in the field. Use precise terminology and notation. Compress the problem, intuition and connection stages to a few sentences, and spend most of the length on formalism, derivations, assumptions, edge cases, limitations and open questions. Length: at most about 1000–1800 words.`,
+    side: `Assume graduate-level background in the field. Use precise terminology and notation, and favor depth and rigor over simplification.`
+  }
+};
+const LEVELS = Object.keys(LEVEL_RULES);
+// The dropdown's choice; read when Go is pressed. The level a document was written at lives in state.level.
+const LEVEL_WORDS = { simply: 'simple', clearly: 'standard', expertly: 'expert' };
+let level = (v => LEVELS.includes(v) ? v : LEVEL_WORDS[v] || 'standard')(lsGet('level'));
+function withLevel(base, kind, lv = state.level) {
+  const r = LEVEL_RULES[lv];
+  const fit = kind === 'side' ? '\nStay within the length limit given above: one well-chosen concrete anchor is enough.\nDon\'t add citation markers like [1] or a refs block.' : '';
+  return `${base}\n${FORMAT_RULES}\n\n${VISUAL_RULES}\n\n${TANGIBLE_RULES}${fit}\n\n${DEPTH_RULES}\n\nREADER LEVEL: ${r.label}. ${r[kind]}`;
+}
+
+const SIDE_BASE = `You help a reader who is studying a document. They highlighted part of it.`;
+const EXPLAIN_SYSTEM = `${SIDE_BASE}
+Explain what the highlighted text means in this context in 1–2 sentences, at most 45 words. Plain and direct. No preamble, no lists, no headings, no restating the question. Inline LaTeX with $...$ is fine.`;
+const ASK_SYSTEM = `${SIDE_BASE}
+Answer their question about the highlight in at most 3 short sentences (under 70 words). Plain and direct. No preamble, no lists, no headings. Inline LaTeX with $...$ is fine.`;
+const ELAB_SYSTEM = `${SIDE_BASE}
+Write an elaboration that will be inserted directly after the paragraph containing the highlight. Go deeper on the highlighted concept, using the same teaching approach as the document in miniature. First say why this idea matters at this point. Then connect it to what the document has already explained. Then add precision: a definition, a derivation step, a concrete example, or where an intuition breaks down. Introduce one new term at a time and never use a term before explaining it. Don't re-explain what the document already covers. Keep it simple but never misleading. At most 250 words of Markdown; fewer when the idea is simple. No "#" or "##" headings. No preamble. No "think", "recap" or "next" block.
+Use at most one diagram or image, and only if it truly helps.`;
+const VISUALIZE_SYSTEM = `${SIDE_BASE} They asked to see it.
+Produce exactly one visual that makes the highlighted idea clearer in this document's context, plus a 1–2 sentence caption, as a plain paragraph right after the visual, that says what to notice in it. No other text: no preamble, no headings, no lists, no second visual.
+Choose the best form, in this order:
+1. A matching figure from AVAILABLE IMAGES, embedded with ![short caption](exact url).
+2. A Plotly chart, if the idea is a quantity, a relationship or a function.
+3. A Mermaid diagram, for a process, a structure or a comparison.
+4. An SVG sketch, for a spatial or physical setup.
+5. An \`\`\`image-search block, only if a real photo or a well-known figure is the right answer.
+Show the idea, not decoration: label the key parts, use the document's own terms and numbers, and keep it simple enough to read at margin size (a few nodes or labels, one or two traces).
+If no visual could honestly make this clearer, reply with exactly NO_VISUAL.`;
+const FOLLOWUP_SYSTEM = `You help a reader who is studying a document. They typed a follow-up question in the margin, without highlighting anything. It may refer back to earlier margin notes.
+Answer in at most 4 short sentences (under 90 words). Plain and direct. No preamble, no headings. Inline LaTeX with $...$ is fine. If the question is outside the document's topic, still answer it briefly.`;
+const DEEPER_SYSTEM = `You are an excellent teacher continuing an explanation the reader has already read (it is included as context). Write the next layer; it will be appended directly below the existing text.
+Go one layer deeper: more precision, the mechanisms underneath, formal detail, real-world complications, limitations and current open questions, as fits the topic. If a DIRECTION is given, go deeper in that specific direction.
+Level: write one complexity step above the reader's selected level (Simple → Standard → Expert); the request states both. If the reader is already at Expert, go to derivations, research-level nuances and open problems.
+Don't repeat or re-explain what's already covered. When you build on something from the existing explanation, refer back to it in a few words instead of restating it.
+Keep using the existing explanation's anchor example: take it further (new quantities, equations, extreme cases) instead of starting a new scenario. Add at most one new example, only where the anchor genuinely can't show what this layer is about, and never a parallel analogy that makes the same point.
+Ideas lead, examples serve: every paragraph adds a new idea or step of reasoning, and examples get a sentence or two. Name each new concept promptly, without long scene-setting. Start at most one paragraph with "Imagine", "Think of" or "Picture", and skip filler transitions that restate the previous paragraph.
+Teaching principles still apply: motivate each new idea briefly before naming it, introduce one new idea or term at a time, never use a term before the reader understands what it describes, and keep it as simple as the target level allows but never misleading. Keep the structure invisible: don't name or signpost teaching steps.
+Output GitHub-flavored Markdown only, with no preamble. Don't write a "# " title. Start with a "## " heading specific to the new material, and use more "## " or "### " headings as needed. Every heading must say what its section is about: never "Part 2", "Going deeper", "Advanced topics", "A closer look", "Why it matters" or similar stock labels.
+Depth: apply the depth rules at the level this layer is written at, and treat everything the existing explanation covers as already known.
+Length: the range under READER LEVEL is a ceiling, not a target; shorter is fine. Keep paragraphs short (2–5 sentences).
+End with exactly these three fenced blocks, in this order, with nothing after them:
+1. A short \`\`\`recap block: one or two sentences stating the core idea of this new layer, then up to 3 bullets, each a **bold** key concept followed by a plain one-line meaning. No new information, no questions and no citation markers.
+2. A \`\`\`refs block, as described under References.
+3. A \`\`\`next block containing only a JSON array of exactly 3 short strings (2–6 words each): specific directions for going deeper still, building on this layer, worded for the target level.
+Images: if an AVAILABLE IMAGES list is provided, you may embed the most useful ones with their exact URLs: ![short caption](url). Never invent image URLs.
+${REFS_RULES}
+- The existing explanation's references are listed under EXISTING REFERENCES. Cite them with those same numbers and don't list them again in refs. Number new references from the next free number given there.`;
+const REPAIR_SYSTEM = `You fix broken formatting snippets. Input is a JSON array of {id, kind, source, error}. kind is one of:
+- "math": KaTeX LaTeX including its delimiters. Keep the same delimiters and use only KaTeX-supported commands.
+- "mermaid": Mermaid code. Simplify if needed and wrap every node label in double quotes.
+- "svg": SVG markup.
+- "plotly": a Plotly JSON spec {"data": [...], "layout": {...}}. Return valid plain JSON with no JavaScript.
+- "image-search": JSON {"query": "...", "count": n} for a Wikimedia Commons image search that found nothing usable. Return the same JSON shape with a different query: shorter, more common terms, or the subject's most standard name.
+- "ascii": a diagram drawn with ASCII or box-drawing characters. Convert it to Mermaid code with the same structure, wrapping every node label in double quotes. Return only the Mermaid code.
+Return ONLY a JSON array of {id, fixed}: corrected source with the same meaning. If an item can't be fixed, return "fixed": "" to drop it. No prose, no code fences.`;
+
+/* ---------------- Sources ---------------- */
+function parseInput(s) {
+  s = s.trim();
+  if (/^\d{4}\.\d{4,5}(v\d+)?$/.test(s)) return { kind: 'url', url: 'https://arxiv.org/abs/' + s };
+  if (/^https?:\/\/\S+$/i.test(s)) return { kind: 'url', url: s };
+  if (/^(www\.)?[\w-]+(\.[\w-]+)+\/\S*$/i.test(s)) return { kind: 'url', url: 'https://' + s };
+  if (s.length > 400 || /\n/.test(s)) return { kind: 'text', text: s };
+  return { kind: 'topic', topic: s };
+}
+
+async function fetchWikipedia(url, signal) {
+  const m = url.match(/^https?:\/\/([a-z0-9-]+)\.(?:m\.)?wikipedia\.org\/wiki\/([^?#]+)/i);
+  if (!m) return null;
+  const lang = m[1], title = decodeURIComponent(m[2]);
+  const apiUrl = `https://${lang}.wikipedia.org/w/api.php?action=parse&format=json&formatversion=2&redirects=1&prop=text&origin=*&page=${encodeURIComponent(title)}`;
+  const j = await (await fetch(apiUrl, { signal })).json();
+  if (j.error || !j.parse) throw new Error(j.error?.info || 'Wikipedia page not found');
+  const doc = new DOMParser().parseFromString(j.parse.text, 'text/html');
+  const root = doc.querySelector('.mw-parser-output') || doc.body;
+
+  const images = [], seen = new Set();
+  for (const img of $$('figure img, .thumb img, .infobox img', root)) {
+    const w = +img.getAttribute('width') || 0;
+    if (w && w < 120) continue;
+    let src = img.getAttribute('src') || '';
+    const set = img.getAttribute('srcset');
+    if (set) { const last = set.split(',').map(x => x.trim().split(/\s+/)[0]).filter(Boolean).pop(); if (last) src = last; }
+    if (src.startsWith('//')) src = 'https:' + src;
+    if (!/^https:\/\//.test(src) || seen.has(src)) continue;
+    seen.add(src);
+    const box = img.closest('figure, .thumb, .infobox');
+    const cap = squash(box?.querySelector('figcaption, .thumbcaption, .infobox-caption')?.textContent || img.getAttribute('alt') || '');
+    images.push({ src, caption: truncate(cap, 160) });
+    if (images.length >= 8) break;
+  }
+  for (const el of $$('.mwe-math-element', root)) {
+    const mathEl = el.querySelector('math');
+    let tex = mathEl?.getAttribute('alttext') || el.querySelector('img')?.getAttribute('alt') || '';
+    const pref = tex.match(/^\{\\displaystyle\s*/);
+    if (pref) tex = tex.slice(pref[0].length).replace(/\}\s*$/, '');
+    const display = mathEl?.getAttribute('display') === 'block' || /block/.test(el.className);
+    el.replaceWith(doc.createTextNode(display ? ` $$${tex}$$ ` : ` $${tex}$ `));
+  }
+  $$('style, script, sup.reference, .mw-editsection, .navbox, .reflist, .mw-references-wrap, .hatnote, .sidebar, .ambox, .metadata, .noprint, .infobox, figure, .thumb, table', root).forEach(e => e.remove());
+  const STOP = /^(see also|references|notes|external links|further reading|bibliography|citations|sources|footnotes)$/i;
+  let text = '';
+  for (const el of $$('h2, h3, h4, p, ul, ol, dl, blockquote', root)) {
+    if (el.parentElement.closest('ul, ol, dl, blockquote')) continue;
+    const tag = el.tagName.toLowerCase(), t = squash(el.textContent);
+    if (!t) continue;
+    if (/^h\d$/.test(tag)) { if (STOP.test(t)) break; text += `\n\n${'#'.repeat(+tag[1])} ${t}\n`; }
+    else if (tag === 'ul' || tag === 'ol') text += '\n' + $$(':scope > li', el).map(li => '- ' + squash(li.textContent)).join('\n') + '\n';
+    else text += '\n' + t + '\n';
+    if (text.length > 50000) break;
+  }
+  return { title: j.parse.title, url, text: text.trim().slice(0, 50000), images };
+}
+
+async function readPage(url, signal) {
+  const r = await api('/api/fetch?url=' + encodeURIComponent(url), { signal });
+  if (!r.ok) throw await apiError(r);
+  return r.json();
+}
+const imageList = images => images?.length ? images.map((x, i) => `${i + 1}. ${x.src}${x.caption ? ' — ' + x.caption : ''}`).join('\n') : '(none)';
+function sourcePrompt(src, label) {
+  return `Explain this ${label}: "${src.title || src.url}" (${src.url}). This source is reference 1.\n\nAVAILABLE IMAGES:\n${imageList(src.images)}\n\nSOURCE TEXT:\n<<<\n${src.text}\n>>>`;
+}
+
+/* ---------------- Rendering + checking ---------------- */
+function protect(md) {
+  const math = [], fences = [];
+  const parts = md.split(/(^```[^\n]*\n[\s\S]*?^```[ \t]*$)/m);
+  let out = '';
+  for (const part of parts) {
+    if (/^```/.test(part)) {
+      const m = part.match(/^```([^\n]*)\n([\s\S]*?)```[ \t]*$/);
+      fences.push({ raw: part, lang: (m?.[1] || '').trim().toLowerCase(), body: m?.[2] || '' });
+      out += part; continue;
+    }
+    out += part.split(/(`[^`\n]+`)/).map(seg => (seg.length > 1 && seg.startsWith('`') && seg.endsWith('`')) ? seg : protectMath(seg, math)).join('');
+  }
+  return { text: out, math, fences };
+}
+function protectMath(s, math) {
+  const put = (raw, tex, display) => { math.push({ raw, tex: tex.trim(), display }); return `⟦M${math.length - 1}⟧`; };
+  s = s.replace(/\$\$([\s\S]+?)\$\$/g, (m, t) => put(m, t, true));
+  s = s.replace(/\\\[([\s\S]+?)\\\]/g, (m, t) => put(m, t, true));
+  s = s.replace(/\\\(([\s\S]+?)\\\)/g, (m, t) => put(m, t, false));
+  s = s.replace(/(?<![\\$\w])\$(?!\s)((?:\\\$|[^$\n])+?)(?<!\s)\$(?![\w$])/g, (m, t) => put(m, t, false));
+  return s;
+}
+const errText = e => String(e?.message || e || 'error').replace(/\s+/g, ' ').slice(0, 300);
+function markBroken(fig, src, label) {
+  fig.classList.add('broken');
+  fig.replaceChildren(h('figcaption', { text: label }), h('details', {}, h('summary', { text: 'Show source' }), h('pre', {}, h('code', { text: src }))));
+}
+function dropImg(img) {
+  const p = img.parentElement; img.remove();
+  if (p && p.tagName === 'P' && !squash(p.textContent) && !p.querySelector('img, svg, .math')) p.remove();
+}
+function checkImage(img) {
+  const src = img.getAttribute('src') || '';
+  if (!/^https:\/\//i.test(src)) { dropImg(img); return null; }
+  if (img.complete && img.naturalWidth > 1) return null;
+  return new Promise(res => {
+    const t = setTimeout(() => { dropImg(img); res(); }, 9000);
+    img.addEventListener('load', () => { clearTimeout(t); if (img.naturalWidth < 2) dropImg(img); res(); }, { once: true });
+    img.addEventListener('error', () => { clearTimeout(t); dropImg(img); res(); }, { once: true });
+  });
+}
+
+/* Plotly: loaded on first use, drawn once the chart is on screen (it needs a real size). */
+let plotlyP = null;
+function loadPlotly() {
+  return plotlyP ||= new Promise((res, rej) => {
+    if (window.Plotly) return res();
+    const sc = document.createElement('script');
+    sc.src = 'https://cdn.jsdelivr.net/npm/plotly.js-dist-min@2.35.2/plotly.min.js';
+    sc.onload = () => res(); sc.onerror = () => { plotlyP = null; sc.remove(); rej(new Error('Plotly failed to load')); };
+    document.head.append(sc);
+  });
+}
+function chartLayout(layout, extra = {}, vars = null) {
+  const cs = getComputedStyle(document.documentElement), v = n => vars?.[n] ?? cs.getPropertyValue(n).trim();
+  const axis = ax => ({ ...(ax || {}), gridcolor: v('--rule'), zerolinecolor: v('--rule'), linecolor: v('--rule'), color: v('--muted') });
+  const L = { ...layout, dragmode: false, ...extra, autosize: true,
+    paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
+    font: { family: v('--sans'), color: v('--ink'), size: 12 },
+    colorway: [v('--accent'), v('--think-ink'), v('--ok'), v('--err'), v('--muted')],
+    margin: { l: 52, r: 16, t: layout.title ? 44 : 16, b: 46 } };
+  for (const k of Object.keys(L)) if (/^[xy]axis\d*$/.test(k)) L[k] = axis(L[k]);
+  L.xaxis = axis(L.xaxis); L.yaxis = axis(L.yaxis);
+  return L;
+}
+async function drawChart(el, spec, extra) {
+  await loadPlotly();
+  await Plotly.react(el, spec.data, chartLayout(spec.layout || {}, extra), { displayModeBar: false, responsive: true });
+}
+async function paintChart(fig) {
+  const box = fig.querySelector('.chart-box');
+  if (!box) return;
+  try { await drawChart(box, JSON.parse(fig.dataset.spec)); fig.dataset.drawn = '1'; }
+  catch (e) { console.warn('Chart failed', e); markBroken(fig, fig.dataset.spec, 'This chart couldn’t be drawn.'); }
+}
+const chartIO = new IntersectionObserver(entries => {
+  for (const en of entries) if (en.isIntersecting) { chartIO.unobserve(en.target); paintChart(en.target); }
+}, { rootMargin: '200px' });
+function redrawCharts() { if (window.Plotly) $$('figure.chart[data-drawn]').forEach(paintChart); }
+
+/* Wikimedia Commons image search */
+const commonsCache = new Map();
+const QUERY_STOP = new Set(['the', 'and', 'for', 'with', 'from', 'image', 'photo', 'picture']);
+const COMMONS_MIME = new Set(['image/png', 'image/jpeg', 'image/svg+xml', 'image/gif']);
+const htmlText = html => squash(new DOMParser().parseFromString(String(html || ''), 'text/html').body.textContent);
+async function searchCommons(query, count) {
+  const key = query.toLowerCase() + '|' + count;
+  if (commonsCache.has(key)) return commonsCache.get(key);
+  const qs = new URLSearchParams({ action: 'query', format: 'json', formatversion: '2', generator: 'search', gsrnamespace: '6',
+    gsrsearch: `${query} filetype:bitmap|drawing`, gsrlimit: '8', prop: 'imageinfo', iiprop: 'url|extmetadata|mime', iiurlwidth: '900', origin: '*' });
+  const j = await (await fetch('https://commons.wikimedia.org/w/api.php?' + qs, { signal: AbortSignal.timeout(10000) })).json();
+  const words = query.toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 2 && !QUERY_STOP.has(w));
+  const out = (j.query?.pages || []).map(pg => {
+    const ii = pg.imageinfo?.[0];
+    if (!ii?.thumburl || !COMMONS_MIME.has(ii.mime)) return null;
+    const meta = ii.extmetadata || {};
+    const title = String(pg.title || '').replace(/^File:/, '').replace(/\.\w+$/, '').replace(/_/g, ' ');
+    const desc = htmlText(meta.ImageDescription?.value) || htmlText(meta.ObjectName?.value) || title;
+    const hay = (title + ' ' + desc).toLowerCase();
+    return {
+      thumb: ii.thumburl, full: /\/\d+px-/.test(ii.thumburl) ? ii.thumburl.replace(/\/\d+px-/, '/1280px-') : ii.thumburl,
+      page: ii.descriptionurl, caption: truncate(desc, 200),
+      artist: truncate(htmlText(meta.Artist?.value), 80) || 'Unknown author',
+      license: htmlText(meta.LicenseShortName?.value) || 'see file page',
+      score: words.filter(w => hay.includes(w)).length, index: pg.index ?? 99
+    };
+  }).filter(Boolean).sort((a, b) => b.score - a.score || a.index - b.index).slice(0, count);
+  commonsCache.set(key, out);
+  return out;
+}
+function commonsFigure(r) {
+  const img = h('img', { src: r.thumb, alt: r.caption });
+  img.dataset.full = r.full;
+  return h('figure', { class: 'commons' }, img,
+    h('figcaption', {}, r.caption, h('span', { class: 'attr' }, h('a', { href: r.page, text: `${r.artist}, ${r.license}, via Wikimedia Commons` }))));
+}
+// Box-drawing, arrows and the common triangle pointers.
+const ASCII_ART = /[─-╿←-⇿▲►▼◄]/;
+
+async function renderInto(md, root) {
+  const errors = [];
+  const { text, math, fences } = protect(md);
+  root.innerHTML = DOMPurify.sanitize(marked.parse(text, { gfm: true }), { ADD_TAGS: ['details', 'summary'] });
+
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  const hits = [];
+  while (walker.nextNode()) if (walker.currentNode.nodeValue.includes('⟦M')) hits.push(walker.currentNode);
+  for (const node of hits) {
+    const parts = node.nodeValue.split(/⟦M(\d+)⟧/);
+    const frag = document.createDocumentFragment();
+    parts.forEach((p, i) => {
+      if (i % 2 === 0) { if (p) frag.append(p); return; }
+      const m = math[+p]; if (!m) return;
+      const span = document.createElement('span');
+      span.className = m.display ? 'math display' : 'math';
+      try { katex.render(m.tex, span, { displayMode: m.display, throwOnError: true, strict: 'ignore', output: 'htmlAndMathml' }); }
+      catch (e) { errors.push({ kind: 'math', source: m.raw, display: m.display, error: errText(e) }); span.className = 'render-err'; span.textContent = m.raw; }
+      frag.append(span);
+    });
+    node.replaceWith(frag);
+  }
+
+  const codes = $$('pre > code', root);
+  const aligned = codes.length === fences.length;
+  for (let i = 0; i < codes.length; i++) {
+    const code = codes[i], pre = code.parentElement;
+    const f = aligned ? fences[i] : null;
+    const lang = f?.lang || ((code.className.match(/language-([\w-]+)/) || [])[1] || '').toLowerCase();
+    const src = code.textContent;
+    if (lang === 'next' || lang === 'refs') {
+      pre.remove(); // parsed by extractNext / extractRefs; never shown as content
+    } else if (lang === 'recap') {
+      const body = h('div', { class: 'recap-body' });
+      errors.push(...await renderInto(src.trim(), body));
+      pre.replaceWith(h('aside', { class: 'recap' }, h('p', { class: 'recap-label', text: 'The core idea' }), body));
+    } else if (lang === 'think') {
+      // Question, then a line of only "---", then the answer. No separator: whole block is the question.
+      const [qSrc, ...rest] = src.split(/^[ \t]*---[ \t]*$/m);
+      const aSrc = rest.join('\n---\n').trim();
+      const q = h('div', { class: 'think-q' });
+      errors.push(...await renderInto(qSrc.trim() || src.trim(), q));
+      const box = h('aside', { class: 'think' }, h('p', { class: 'think-label', text: 'Think about it' }), q);
+      if (aSrc) {
+        const a = h('div', { class: 'think-a' });
+        errors.push(...await renderInto(aSrc, a));
+        box.append(h('details', {}, h('summary', { text: 'Show answer' }), a));
+      }
+      pre.replaceWith(box);
+    } else if (lang === 'mermaid') {
+      const fig = h('figure', { class: 'diagram' }); fig.dataset.src = src; pre.replaceWith(fig);
+      try { await mermaid.parse(src); await drawDiagram(fig); }
+      catch (e) { errors.push({ kind: 'mermaid', source: f?.raw, body: src, error: errText(e) }); markBroken(fig, src, 'This diagram couldn’t be drawn.'); }
+    } else if (lang === 'plotly') {
+      const fig = h('figure', { class: 'chart' }); pre.replaceWith(fig);
+      try {
+        const spec = JSON.parse(src);
+        if (!Array.isArray(spec?.data) || !spec.data.length || spec.data.some(t => !t || typeof t !== 'object')) throw new Error('Expected {"data": [trace, ...], "layout": {...}}');
+        const layout = spec.layout && typeof spec.layout === 'object' ? { ...spec.layout } : {};
+        delete layout.width; delete layout.height; delete layout.images; delete layout.template;
+        fig.dataset.spec = JSON.stringify({ data: spec.data, layout });
+        const title = typeof layout.title === 'string' ? layout.title : layout.title?.text;
+        fig.append(h('div', { class: 'chart-box', role: 'img', 'aria-label': squash(title) || 'Chart' }));
+        chartIO.observe(fig);
+      } catch (e) { errors.push({ kind: 'plotly', source: f?.raw, body: src, error: errText(e) }); markBroken(fig, src, 'This chart couldn’t be drawn.'); }
+    } else if (lang === 'image-search') {
+      const holder = h('div', { class: 'img-search' }); pre.replaceWith(holder);
+      let q = '', count = 1, why = '', figs = [];
+      try { const spec = JSON.parse(src); q = squash(spec?.query); count = Math.min(3, Math.max(1, parseInt(spec?.count, 10) || 1)); } catch {}
+      if (!q) why = 'Block is not JSON with a "query" string';
+      else {
+        try {
+          figs = (await searchCommons(q, count)).map(commonsFigure);
+          holder.append(...figs);
+          await Promise.all(figs.map(fg => checkImage(fg.querySelector('img'))).filter(Boolean));
+          figs = figs.filter(fg => fg.querySelector('img') || (fg.remove(), false));
+          if (!figs.length) why = `No usable Wikimedia Commons images for "${q}"`;
+        } catch (e) { why = 'Image search failed: ' + errText(e); }
+      }
+      // Shown only if the repair pass can't find a better query.
+      if (why) { holder.replaceChildren(h('p', { class: 'img-missing', text: 'No matching image found.' })); errors.push({ kind: 'image-search', source: f?.raw, body: src, error: why }); }
+      else holder.replaceWith(...figs);
+    } else if (['', 'text', 'plain', 'txt', 'plaintext'].includes(lang) && src.split('\n').filter(l => ASCII_ART.test(l)).length >= 3) {
+      errors.push({ kind: 'ascii', source: f?.raw, body: src, error: 'Diagram drawn with ASCII/box-drawing characters; convert it to Mermaid' });
+    } else if (lang === 'svg' || ((lang === 'xml' || lang === 'html') && /^\s*<svg[\s>]/i.test(src))) {
+      const fig = h('figure', { class: 'svg-fig' }); pre.replaceWith(fig);
+      try {
+        const parsed = new DOMParser().parseFromString(src, 'image/svg+xml');
+        const pe = parsed.querySelector('parsererror');
+        if (pe || parsed.documentElement.nodeName.toLowerCase() !== 'svg') throw new Error(pe ? squash(pe.textContent).slice(0, 200) : 'Not an SVG document');
+        fig.innerHTML = DOMPurify.sanitize(src, { USE_PROFILES: { svg: true, svgFilters: true } });
+        const svg = fig.querySelector('svg');
+        if (!svg) throw new Error('SVG was empty after sanitizing');
+        if (svg.getAttribute('viewBox')) { svg.removeAttribute('height'); svg.removeAttribute('width'); }
+        svg.setAttribute('role', 'img');
+      } catch (e) { errors.push({ kind: 'svg', source: f?.raw, body: src, error: errText(e) }); markBroken(fig, src, 'This figure couldn’t be drawn.'); }
+    }
+  }
+
+  await Promise.all($$('img', root).map(checkImage).filter(Boolean));
+  for (const img of $$('img', root)) {
+    const p = img.parentElement;
+    if (p && p.tagName === 'P' && p.childNodes.length === 1) {
+      const fig = h('figure'); p.replaceWith(fig); fig.append(img);
+      const alt = squash(img.getAttribute('alt'));
+      if (alt) fig.append(h('figcaption', { text: alt }));
+    }
+  }
+  $$('table', root).forEach(t => { const w = h('div', { class: 'table-wrap' }); t.replaceWith(w); w.append(t); });
+  $$('a[href]', root).forEach(a => { a.target = '_blank'; a.rel = 'noopener noreferrer'; });
+  // The recap always closes the document, wherever the model put it.
+  for (const r of $$('aside.recap', root)) if (!r.parentElement.closest('.recap-body, .think')) root.append(r);
+  const dek = root.querySelector(':scope > h1')?.nextElementSibling;
+  if (dek?.tagName === 'P') dek.classList.add('dek');
+  return errors;
+}
+
+function parseJsonArray(s) {
+  s = String(s || '').replace(/```(?:json)?/gi, '');
+  const a = s.indexOf('['), b = s.lastIndexOf(']');
+  if (a < 0 || b <= a) return [];
+  try { const v = JSON.parse(s.slice(a, b + 1)); return Array.isArray(v) ? v : []; } catch { return []; }
+}
+async function repair(md, errors) {
+  const list = errors.filter(e => e.source && e.source.length < 6000).slice(0, 12);
+  if (!list.length) return md;
+  const payload = list.map((e, id) => ({ id, kind: e.kind, source: e.kind === 'math' ? e.source : e.body, error: e.error }));
+  const out = await callLLM({ system: REPAIR_SYSTEM, user: JSON.stringify(payload) });
+  for (const f of parseJsonArray(out)) {
+    const e = list[f?.id];
+    if (!e || typeof f.fixed !== 'string') continue;
+    let rep = f.fixed.trim();
+    if (!rep && e.kind === 'ascii') continue;
+    if (rep && e.kind === 'math') { if (!/^(\$|\\\(|\\\[)/.test(rep)) rep = e.display ? `$$${rep}$$` : `$${rep}$`; }
+    else if (rep) rep = '```' + (e.kind === 'ascii' ? 'mermaid' : e.kind) + '\n' + rep.replace(/^```[\w-]*\n?/, '').replace(/```$/, '').trim() + '\n```';
+    md = md.split(e.source).join(rep);
+  }
+  return md;
+}
+// Render offscreen, check everything, repair once, then hand back a finished node.
+async function prepare(md, onStatus) {
+  let root = document.createElement('div');
+  let errors = await renderInto(md, root);
+  if (errors.length) {
+    onStatus?.('Fixing formatting…');
+    try {
+      const fixed = await repair(md, errors);
+      if (fixed !== md) { md = fixed; root = document.createElement('div'); errors = await renderInto(md, root); }
+    } catch (e) { console.warn('Repair skipped', e); }
+  }
+  return { md, root, errors };
+}
+// Pull the ```next directions out of a reply. Missing or invalid: no chips, just the general button.
+function extractNext(md) {
+  let next = [];
+  md = String(md || '').replace(/^```next[ \t]*\n([\s\S]*?)^```[ \t]*$/gm, (_, body) => {
+    try {
+      const arr = JSON.parse(body.trim());
+      if (Array.isArray(arr)) next = arr.filter(x => typeof x === 'string').map(x => truncate(x, 60)).filter(Boolean).slice(0, 3);
+    } catch {}
+    return '';
+  });
+  md = md.replace(/^```next[^\n]*\n[\s\S]*$/m, ''); // unterminated block at the very end
+  return { md: md.trim(), next };
+}
+
+/* ---------------- References ---------------- */
+// Pull the ```refs block out of a reply (the model's unverified list).
+function extractRefs(md) {
+  let refs = [];
+  md = String(md || '').replace(/^```refs[ \t]*\n([\s\S]*?)^```[ \t]*$/gm, (_, body) => {
+    const a = parseJsonArray(body).filter(x => x && typeof x === 'object');
+    if (a.length) refs = a;
+    return '';
+  });
+  md = md.replace(/^```refs[^\n]*\n[\s\S]*$/m, '');
+  return { md: md.trim(), refs };
+}
+// A citation marker: [3], [1, 4], [2–3]; never a link "[x](" or a definition "[x]:". Leading space goes with it.
+const CITE_RE = /[ \t ]*\[(\d{1,3}(?:\s*[,;–-]\s*\d{1,3})*)\](?![(:])/g;
+function citeNums(list) {
+  const out = [];
+  for (const part of list.split(/[,;]/)) {
+    const m = part.trim().match(/^(\d+)(?:\s*[–-]\s*(\d+))?$/);
+    if (!m) continue;
+    const a = +m[1], b = m[2] ? +m[2] : a;
+    for (let k = a; k <= Math.min(b, a + 10); k++) out.push(k);
+  }
+  return out;
+}
+// Rewrite markers in Markdown, outside code and math. fn(nums) → new numbers ([] drops the marker), or null to leave it.
+const INLINE_SKIP = /(`[^`\n]+`|\$\$[\s\S]+?\$\$|\\\[[\s\S]+?\\\]|\\\([\s\S]+?\\\)|(?<![\\$\w])\$(?!\s)(?:\\\$|[^$\n])+?(?<!\s)\$(?![\w$]))/;
+function mapCitations(md, fn) {
+  const rewrite = s => s.replace(CITE_RE, (all, list) => {
+    const nums = fn(citeNums(list));
+    if (nums == null) return all;
+    return nums.length ? `${all.slice(0, all.indexOf('['))}[${nums.join(', ')}]` : '';
+  });
+  return String(md || '').split(/(^```[^\n]*\n[\s\S]*?^```[ \t]*$)/m).map(part => {
+    if (part.startsWith('```')) {
+      const m = part.match(/^```([^\n]*)\n([\s\S]*?)(```[ \t]*)$/);
+      return m && /^(recap|think)$/i.test(m[1].trim()) ? '```' + m[1] + '\n' + mapCitations(m[2], fn) + m[3] : part;
+    }
+    return part.split(INLINE_SKIP).map((seg, i) => i % 2 ? seg : rewrite(seg)).join('');
+  }).join('');
+}
+const stripCites = md => state.refs.length ? mapCitations(md, () => []) : md;
+
+const TITLE_STOP = new Set(['the', 'and', 'for', 'with', 'from', 'that', 'this', 'its', 'into', 'are', 'was', 'how', 'what', 'why', 'via', 'about', 'wikipedia', 'home', 'page', 'official', 'site', 'website']);
+const normTokens = s => String(s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+// Dice overlap of normalized title tokens, 0..1.
+function titleSim(a, b) {
+  const A = new Set(normTokens(a)), B = new Set(normTokens(b));
+  if (!A.size || !B.size) return 0;
+  let n = 0; for (const t of A) if (B.has(t)) n++;
+  return 2 * n / (A.size + B.size);
+}
+// Does a fetched page title share meaningful words with the cited title?
+function sharesWords(refTitle, pageTitle) {
+  const P = new Set(normTokens(pageTitle)), R = [...new Set(normTokens(refTitle).filter(w => w.length > 2 && !TITLE_STOP.has(w)))];
+  return R.length > 0 && R.filter(w => P.has(w)).length >= Math.min(2, R.length);
+}
+const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
+const cleanDoi = s => (String(s || '').trim().match(/10\.\d{4,9}\/\S+/) || [''])[0].replace(/[.,;]+$/, '');
+const WIKI_RE = /^https?:\/\/([a-z0-9-]+)\.(?:m\.)?wikipedia\.org\/wiki\/([^?#]+)/i;
+function arxivId(s) {
+  s = String(s || '');
+  const m = s.match(/arxiv\.org\/(?:abs|pdf|html)\/((?:[a-z-]+(?:\.[a-z]{2})?\/)?\d{4}\.?\d{3,5})/i) || s.match(/10\.48550\/arxiv\.(\d{4}\.\d{4,5})/i);
+  return m ? m[1] : '';
+}
+const normAuthors = a => (Array.isArray(a) ? a : a ? [a] : []).map(x => squash(typeof x === 'string' ? x : x?.name || [x?.family, x?.given].filter(Boolean).join(', '))).filter(Boolean).slice(0, 12);
+const withTimeout = ms => AbortSignal.timeout(ms);
+
+async function checkUrl(url) {
+  const r = await api('/api/check-url?url=' + encodeURIComponent(url), { signal: withTimeout(15000) });
+  return r.ok ? r.json() : null;
+}
+const initials = g => g.split(/[\s-]+/).filter(Boolean).map(p => p[0].toUpperCase() + '.').join(' ');
+const crTitle = (it, sub) => htmlText([it.title?.[0], sub ? it.subtitle?.[0] : ''].filter(Boolean).join(': '));
+function fromCrossref(it) {
+  const year = (it.issued || it['published-print'] || it['published-online'] || it.created)?.['date-parts']?.[0]?.[0];
+  const book = /book|monograph/.test(it.type || '');
+  return {
+    type: book ? 'book' : 'paper', title: crTitle(it, true),
+    authors: (it.author || []).map(a => a.family ? (a.given ? `${a.family}, ${initials(a.given)}` : a.family) : a.name).filter(Boolean),
+    year: year ? String(year) : '', venue: htmlText(it['container-title']?.[0]) || (book ? htmlText(it.publisher) : ''),
+    doi: it.DOI, url: 'https://doi.org/' + it.DOI
+  };
+}
+// Papers and books: a DOI lookup if one was given, then a bibliographic search. Titles must clearly match.
+async function verifyCrossref(title, authors, doi) {
+  const get = async u => { const r = await fetch(u, { signal: withTimeout(12000) }); if (!r.ok) throw new Error('Crossref HTTP ' + r.status); return (await r.json()).message; };
+  const ok = it => it?.DOI && !/^(peer-review|component|grant)$/.test(it.type || '')
+    && Math.max(titleSim(title, crTitle(it, false)), titleSim(title, crTitle(it, true))) >= 0.8;
+  if (doi) { try { const it = await get('https://api.crossref.org/works/' + encodeURIComponent(doi)); if (ok(it)) return fromCrossref(it); } catch {} }
+  const q = [title, ...authors.slice(0, 3)].join(' ');
+  const items = (await get(`https://api.crossref.org/works?query.bibliographic=${encodeURIComponent(q)}&rows=3`))?.items || [];
+  const it = items.find(ok);
+  return it ? fromCrossref(it) : null;
+}
+// arXiv: the abs page must resolve and its title must match the cited one.
+async function verifyArxiv(id, base) {
+  const url = 'https://arxiv.org/abs/' + id;
+  const j = await checkUrl(url);
+  const page = squash(j?.title).replace(/^\[[^\]]*\]\s*/, '');
+  if (!j?.ok || j.status !== 200 || !sharesWords(base.title, page)) return null;
+  return { ...base, type: 'paper', title: page || base.title, url, venue: 'arXiv' };
+}
+async function verifyWikipedia(url) {
+  const m = url.match(WIKI_RE);
+  const qs = new URLSearchParams({ action: 'query', format: 'json', formatversion: '2', redirects: '1', prop: 'info', inprop: 'url',
+    titles: decodeURIComponent(m[2]).replace(/_/g, ' '), origin: '*' });
+  const j = await (await fetch(`https://${m[1]}.wikipedia.org/w/api.php?${qs}`, { signal: withTimeout(10000) })).json();
+  const pg = j.query?.pages?.[0];
+  if (!pg || pg.missing || pg.invalid || !pg.fullurl) return null;
+  return { type: 'web', title: pg.title, authors: [], year: '', url: pg.fullurl, venue: 'Wikipedia' };
+}
+async function verifyWeb(url, base) {
+  const j = await checkUrl(url);
+  if (!j?.ok || j.status !== 200 || !sharesWords(base.title, j.title)) return null;
+  const final = /^https?:\/\//i.test(j.final_url || '') ? j.final_url : url;
+  return { ...base, type: 'web', url: final, venue: hostOf(final) };
+}
+// One reference from the model → verified reference with real metadata, or null (dropped).
+async function verifyRef(r) {
+  const title = squash(r.title);
+  if (!title) return null;
+  const type = String(r.type || '').toLowerCase();
+  const url = /^https?:\/\/\S+$/i.test(String(r.url || '').trim()) ? String(r.url).trim() : '';
+  const doi = cleanDoi(r.doi) || cleanDoi(/doi\.org\//i.test(url) ? url : '');
+  const year = parseInt(r.year, 10);
+  const base = { type, title, authors: normAuthors(r.authors), year: year > 0 ? String(year) : '', venue: '' };
+  const arxiv = arxivId(url) || arxivId(doi);
+  if (type === 'paper' || type === 'book' || doi) {
+    const cr = await verifyCrossref(title, base.authors, /^10\.48550\//.test(doi) ? '' : doi).catch(() => null);
+    if (cr) return cr;
+    return arxiv ? verifyArxiv(arxiv, base) : null;
+  }
+  if (!url) return null;
+  if (WIKI_RE.test(url)) return verifyWikipedia(url);
+  if (arxiv) return verifyArxiv(arxiv, base);
+  return verifyWeb(url, base);
+}
+function refKeys(r) {
+  const k = [];
+  if (r.doi) k.push('doi:' + r.doi.toLowerCase());
+  if (r.url) k.push('url:' + r.url.toLowerCase().replace(/^https?:\/\/(www\.)?/, '').replace(/\.m\.wikipedia/, '.wikipedia').replace(/[#?].*$/, '').replace(/\/+$/, ''));
+  if (r.title) k.push('t:' + normTokens(r.title).join(' '));
+  return k;
+}
+const sameRef = (a, b) => { const k = new Set(refKeys(a)); return refKeys(b).some(x => k.has(x)); };
+
+// Verify a reply's references, merge them into the existing list (Go deeper) and renumber 1…N by first
+// appearance (the input source stays 1; uncited ones go last). map(n) gives a marker's new number or null.
+async function resolveRefs(md, rawRefs, { source = null, existing = [] } = {}) {
+  const defs = new Map();
+  for (const [i, r] of (rawRefs || []).entries()) {
+    const id = parseInt(r.id, 10) || i + 1;
+    if (!defs.has(id) && defs.size < 8) defs.set(id, r);
+  }
+  if (source) defs.set(1, null);
+  const active = defs.size > 0 || existing.length > 0;
+  const ids = [...defs.keys()];
+  const checked = await Promise.all(ids.map(id => source && id === 1 ? source
+    : verifyRef(defs.get(id)).catch(e => { console.warn('Reference check failed', e); return null; })));
+  const pool = [...existing], target = new Map();
+  ids.forEach((id, i) => {
+    const r = checked[i];
+    if (!r) return;
+    const dup = pool.find(x => sameRef(x, r));
+    if (dup) target.set(id, dup); else { pool.push(r); target.set(id, r); }
+  });
+  const resolve = n => target.get(n) || (!defs.has(n) && n >= 1 && n <= existing.length ? existing[n - 1] : null);
+  const fresh = source ? [source] : [];
+  const add = r => { if (r && !existing.includes(r) && !fresh.includes(r)) fresh.push(r); };
+  if (active) mapCitations(md, nums => { nums.forEach(n => add(resolve(n))); return null; });
+  new Set(target.values()).forEach(add);
+  const refs = [...existing, ...fresh];
+  refs.forEach((r, i) => { r.n = i + 1; });
+  return { active, refs, map: n => resolve(n)?.n ?? null };
+}
+const remapNums = (nums, c) => [...new Set(nums.map(c.map).filter(Boolean))].sort((a, b) => a - b);
+const applyCites = (md, c) => c.active ? mapCitations(md, nums => remapNums(nums, c)) : md;
+// Turn the rendered "[n]" markers into superscript links (CSS hides them while references are off).
+function linkCitations(root, c) {
+  if (!c.active) return;
+  const tw = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+    acceptNode: t => t.parentElement?.closest('code, pre, .katex, .math, .render-err, svg, a, sup.cite') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+  const nodes = [];
+  while (tw.nextNode()) if (/\[\d/.test(tw.currentNode.nodeValue)) nodes.push(tw.currentNode);
+  for (const node of nodes) {
+    const s = node.nodeValue, frag = document.createDocumentFragment();
+    let last = 0;
+    for (const m of s.matchAll(CITE_RE)) {
+      const nums = remapNums(citeNums(m[1]), c);
+      frag.append(s.slice(last, m.index));
+      if (nums.length) frag.append(h('sup', { class: 'cite' }, ...nums.flatMap((n, i) =>
+        [i ? ',' : null, h('a', { href: '#cite-' + n, text: String(n), 'aria-label': 'Reference ' + n })])));
+      last = m.index + m[0].length;
+    }
+    if (!last) continue;
+    frag.append(s.slice(last));
+    node.replaceWith(frag);
+  }
+}
+function refItem(r) {
+  const li = h('li', { id: 'cite-' + r.n });
+  const au = r.authors?.length ? (r.authors.length > 3 ? r.authors.slice(0, 3).join(', ') + ', et al.' : r.authors.join(', ')) : '';
+  if (au) li.append(au + (r.year ? ` (${r.year}). ` : au.endsWith('.') ? ' ' : '. '));
+  li.append(r.url ? h('a', { href: r.url, target: '_blank', rel: 'noopener noreferrer', text: r.title }) : h('span', { text: r.title }));
+  if (!au && r.year) li.append(` (${r.year})`);
+  if (!/[.?!]$/.test(r.title) || (!au && r.year)) li.append('.');
+  if (r.venue) li.append(' ', h('span', { class: 'venue', text: r.venue }), '.');
+  if (r.source) li.append(' ', h('span', { class: 'src-tag', text: 'Source of this explanation.' }));
+  return li;
+}
+const refsNodes = refs => [h('h2', { text: 'References' }), h('ol', { class: 'ref-list' }, ...refs.map(refItem))];
+// The input itself as reference 1 (always kept; it's what the explanation was written from).
+function sourceRef(src, url) {
+  if (!src) return null;
+  const wiki = /wikipedia\.org\/wiki\//i.test(url);
+  return { type: 'source', source: true, title: squash(src.title) || src.url || url, authors: [], year: '',
+    url: src.url || url, venue: wiki ? 'Wikipedia' : arxivId(url) ? 'arXiv' : hostOf(src.url || url) };
+}
+// Long documents: keep the title and summary plus the most recent text.
+function docContext(max = 14000, tail = 10000) {
+  const md = state.docMd;
+  if (md.length <= max) return md;
+  const h2 = md.search(/^## /m);
+  const head = md.slice(0, h2 > 0 ? Math.min(h2, 2000) : 1500).trim();
+  let rest = md.slice(-tail);
+  const cut = rest.indexOf('\n\n');
+  if (cut >= 0 && cut < 1500) rest = rest.slice(cut + 2);
+  return `${head}\n\n[… earlier sections omitted …]\n\n${rest}`;
+}
+function cleanMain(md) {
+  md = String(md || '').trim();
+  const f = md.match(/^```(?:markdown|md)?[ \t]*\n([\s\S]*?)\n```$/i);
+  if (f) md = f[1].trim();
+  const at = md.search(/^# /m);
+  if (at > 0 && at < 500) md = md.slice(at);
+  return md;
+}
+function cleanText(node) {
+  const box = document.createElement('div');
+  box.append(node.cloneNode(true));
+  for (const k of $$('.katex', box)) {
+    const tex = k.querySelector('annotation[encoding="application/x-tex"]')?.textContent;
+    k.replaceWith(tex ? ` $${tex}$ ` : k.textContent);
+  }
+  $$('figure.diagram, .svg-fig, figure.chart, .commons .attr, .img-missing, .elab-head, .think-label, .recap-label, summary, svg, sup.cite', box).forEach(e => e.remove());
+  return squash(box.textContent);
+}
+
+/* ---------------- State ---------------- */
+const article = $('#article'), notesList = $('#notes-list'), statusEl = $('#status');
+let state = { docMd: '', title: '', notes: [], input: '', level, sourceImages: [], next: [], refs: [], showRefs: false };
+let mainCtl = null, reqSeq = 0, blockSeq = 0;
+// Stable ids for every top-level block (and blocks inside elaborations), used to anchor margin notes.
+function assignBlockIds() {
+  for (const el of [...article.children, ...$$('.elab-body > *', article)])
+    if (!el.dataset.blockId) el.dataset.blockId = 'b' + (++blockSeq);
+}
+
+function setStatus(msg, isError = false) {
+  if (!msg) { statusEl.hidden = true; return; }
+  statusEl.hidden = false; statusEl.classList.toggle('error', isError);
+  $('#status-text').textContent = msg;
+}
+
+/* ---------------- Main explanation ---------------- */
+async function explain(input) {
+  input = (input || '').trim();
+  if (!input) return;
+  $('#q').value = input;
+  await sessionReady;
+  if (session.offline || session.checkFailed) { await refreshSession(); if (session.offline || session.checkFailed) return; }
+  if (!session.connected) { startAuth('/auth/start'); return; }
+  if (!session.sharing) { startAuth('/auth/start?reconsent=1'); return; }
+
+  mainCtl?.abort(); mainCtl = new AbortController();
+  deepCtl?.abort(); deepCtl = null; hideDeeper();
+  const signal = mainCtl.signal, my = ++reqSeq;
+  $('#main-stop').hidden = false;
+  hidePopup();
+  $('#empty').hidden = true;
+  article.replaceChildren(); notesList.replaceChildren();
+  resetFollowup();
+  const lv = level;
+  state = { docMd: '', title: '', notes: [], input, level: lv, sourceImages: [], next: [], refs: [], showRefs: false };
+  blockSeq = 0;
+  syncExport(); syncRefs();
+
+  try {
+    const p = parseInput(input);
+    let user, source = null;
+    if (p.kind === 'topic') user = `Explain: ${p.topic}`;
+    else if (p.kind === 'text') {
+      user = `Explain this text the reader pasted (it is reference 1):\n<<<\n${p.text.slice(0, 120000)}\n>>>`;
+      source = { type: 'source', source: true, title: 'The text you pasted', authors: [], year: '', venue: '' };
+    }
+    else {
+      let src = null, why = '';
+      setStatus(/wikipedia\.org\/wiki\//i.test(p.url) ? 'Reading the Wikipedia article…' : 'Reading the page…');
+      try { src = await fetchWikipedia(p.url, signal); } catch (e) { if (e.name === 'AbortError') throw e; }
+      if (!src) { try { src = await readPage(p.url, signal); } catch (e) { if (e.name === 'AbortError') throw e; why = e.message || ''; } }
+      if (src && my === reqSeq) state.sourceImages = src.images || [];
+      source = sourceRef(src, p.url);
+      user = src ? sourcePrompt(src, /wikipedia/.test(p.url) ? 'Wikipedia article' : 'page')
+        : `The reader gave this link, but it couldn't be read (${why || 'unknown error'}): ${p.url}\nStart with one italic line saying the page couldn't be opened, then explain what the link points to from what you know. Don't pretend to quote it.`;
+    }
+    setStatus('Writing the explanation…');
+    const raw = await callLLM({ system: withLevel(MAIN_SYSTEM, 'main', lv), user, signal,
+      onText: t => { if (my === reqSeq) setStatus(`Writing the explanation… ${wordCount(t)} words`); } });
+    if (my !== reqSeq) return;
+    if (!squash(raw)) throw new AppError('empty', 'The model returned an empty answer. Try again or pick another model.');
+    setStatus('Checking math, diagrams, images and references…');
+    const { md: withRefs, next } = extractNext(cleanMain(raw));
+    const { md: body, refs: rawRefs } = extractRefs(withRefs);
+    const [{ md: prepped, root }, cites] = await Promise.all([
+      prepare(body, m => my === reqSeq && setStatus(m)),
+      resolveRefs(body, rawRefs, { source })]);
+    if (my !== reqSeq) return;
+    if (signal.aborted) throw new DOMException('Stopped', 'AbortError');
+    linkCitations(root, cites);
+    state.docMd = applyCites(prepped, cites);
+    state.next = next;
+    state.refs = cites.refs;
+    const h1 = root.querySelector('h1')?.cloneNode(true);
+    h1?.querySelectorAll('sup.cite').forEach(x => x.remove());
+    state.title = squash(h1?.textContent) || truncate(input, 80);
+    document.title = state.title + ' · Let AI Explain';
+    article.replaceChildren(...root.childNodes);
+    assignBlockIds();
+    setStatus(null);
+    notesList.replaceChildren(h('p', { class: 'notes-hint', text: 'Select any word or passage on the left to ask about it, or ask a follow-up below. Answers appear here.' }));
+    setFollowupReady(true);
+    syncExport(); syncRefs();
+    renderDeeper(next);
+  } catch (e) {
+    if (my !== reqSeq) return;
+    const msg = friendlyError(e);
+    if (msg) setStatus(msg, true); else setStatus(null);
+    if (e?.name === 'AbortError' && !article.childElementCount) $('#empty').hidden = false;
+  } finally {
+    if (my === reqSeq) $('#main-stop').hidden = true;
+  }
+}
+$('#main-stop').addEventListener('click', () => mainCtl?.abort());
+
+/* ---------------- Go deeper ---------------- */
+let deepCtl = null;
+function renderDeeper(next) {
+  $('#deeper-chips').replaceChildren(...(next || []).map(d =>
+    h('button', { type: 'button', class: 'deeper-chip', title: `Go deeper: ${d}`, text: d, onclick: () => goDeeper(d) })));
+  $$('#deeper button').forEach(b => { b.disabled = false; });
+  $('#deeper-row').hidden = false;
+  $('#deeper-status').hidden = true;
+  $('#deeper').hidden = false;
+}
+function hideDeeper() { $('#deeper').hidden = true; }
+function deeperStatus(msg, isError = false) {
+  const el = $('#deeper-status');
+  el.hidden = false; el.classList.toggle('error', isError);
+  $('#deeper-text').textContent = msg;
+  $('#deeper-stop').hidden = isError;
+}
+$('#deeper-go').addEventListener('click', () => goDeeper(null));
+$('#deeper-stop').addEventListener('click', () => deepCtl?.abort());
+
+async function goDeeper(direction) {
+  if (!state.docMd || deepCtl) return;
+  const st = state, my = reqSeq;
+  const ctl = deepCtl = new AbortController(), signal = ctl.signal;
+  const sel = st.level, target = LEVELS[Math.min(LEVELS.indexOf(sel) + 1, LEVELS.length - 1)];
+  $$('#deeper-row button').forEach(b => { b.disabled = true; });
+  $('#deeper-row').hidden = true;
+  deeperStatus('Writing a deeper layer…');
+  const user = [
+    `EXISTING EXPLANATION "${st.title}" (the reader has read this; continue it, don't repeat it):\n<<<\n${docContext(30000, 24000)}\n>>>`,
+    st.sourceImages.length ? `AVAILABLE IMAGES (from the source):\n${imageList(st.sourceImages)}` : '',
+    `READER'S SELECTED LEVEL: ${LEVEL_RULES[sel].label}. WRITE THIS LAYER AT: ${LEVEL_RULES[target].label}${sel === 'expert' ? ' (already Expert: go to derivations, research-level nuances and open problems)' : ''}.`,
+    `EXISTING REFERENCES (cite them by these numbers; number new references from ${st.refs.length + 1}):\n${st.refs.length
+      ? st.refs.map(r => `[${r.n}] ${r.title}${r.authors?.length ? ' — ' + r.authors.slice(0, 3).join(', ') : ''}${r.year ? ` (${r.year})` : ''}`).join('\n')
+      : '(none)'}`,
+    `DIRECTION: ${direction || 'None given. Take the most natural next layer.'}`
+  ].filter(Boolean).join('\n\n');
+  const live = () => my === reqSeq && state === st && !signal.aborted;
+  try {
+    const raw = await callLLM({ system: withLevel(DEEPER_SYSTEM, 'main', sel), user, signal,
+      onText: t => { if (live()) deeperStatus(`Writing a deeper layer… ${wordCount(t)} words`); } });
+    if (!live()) throw new DOMException('Stopped', 'AbortError');
+    if (!squash(raw)) throw new AppError('empty', 'The model returned an empty answer. Try again.');
+    deeperStatus('Checking math, diagrams, images and references…');
+    const { md: withRefs, next } = extractNext(cleanMain(raw).replace(/^# .*\n+/, ''));
+    const { md: body, refs: rawRefs } = extractRefs(withRefs);
+    const [{ md, root }, cites] = await Promise.all([
+      prepare(body, m => live() && deeperStatus(m)),
+      resolveRefs(body, rawRefs, { existing: st.refs })]);
+    if (!live()) throw new DOMException('Stopped', 'AbortError');
+    linkCitations(root, cites);
+    const sep = h('hr', { class: 'deeper-sep' });
+    article.append(sep, ...root.childNodes);
+    assignBlockIds();
+    st.docMd += '\n\n---\n\n' + applyCites(md, cites);
+    st.next = next;
+    st.refs = cites.refs;
+    syncRefs();
+    renderDeeper(next);
+    sep.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (e) {
+    if (my !== reqSeq || state !== st) return;
+    renderDeeper(st.next);
+    const msg = friendlyError(e);
+    if (msg) deeperStatus(msg, true);
+  } finally {
+    if (deepCtl === ctl) deepCtl = null;
+  }
+}
+
+/* ---------------- Selection popup ---------------- */
+const popup = $('#popup');
+let pending = null;
+
+function blockFor(node) {
+  let el = node.nodeType === 1 ? node : node.parentElement;
+  if (!el || el === article || !article.contains(el)) return null;
+  while (el.parentElement && el.parentElement !== article && !el.parentElement.classList.contains('elab-body')) el = el.parentElement;
+  return el.parentElement ? el : null;
+}
+// Trim a selection to the article, so drags that overshoot (above the title, into the header,
+// down into the footer or notes) still count. Null if nothing inside the article is selected.
+function clampToArticle(range) {
+  const a = document.createRange(); a.selectNodeContents(article);
+  const r = range.cloneRange();
+  if (r.compareBoundaryPoints(Range.START_TO_START, a) < 0) r.setStart(a.startContainer, a.startOffset);
+  if (r.compareBoundaryPoints(Range.END_TO_END, a) > 0) r.setEnd(a.endContainer, a.endOffset);
+  return !r.collapsed && article.contains(r.commonAncestorContainer) ? r : null;
+}
+// The first block a range touches. Its start can sit on the article itself (clamped, or a
+// triple-click) or on the whitespace text between blocks; step forward to the next element.
+function firstBlock(range) {
+  let n = range.startContainer;
+  if (n === article) n = article.childNodes[range.startOffset] || null;
+  else if (n.nodeType === 3 && n.parentElement === article) n = n.nextSibling;
+  while (n && n.parentElement === article && n.nodeType !== 1) n = n.nextSibling;
+  return n ? blockFor(n) : null;
+}
+function isBackward(sel) {
+  if (sel.anchorNode === sel.focusNode) return sel.focusOffset < sel.anchorOffset;
+  return !!(sel.anchorNode.compareDocumentPosition(sel.focusNode) & Node.DOCUMENT_POSITION_PRECEDING);
+}
+function onSelect() {
+  setTimeout(() => {
+    const sel = getSelection();
+    if (!sel || sel.isCollapsed || !sel.rangeCount) return;
+    const range = clampToArticle(sel.getRangeAt(0));
+    if (!range) return;
+    const text = cleanText(range.cloneContents());
+    if (!text || text.length > 2000) return;
+    const block = firstBlock(range);
+    if (!block) return;
+    pending = { text, block };
+    // Upward drag: open above the first line. Downward: below the last line.
+    const rects = [...range.getClientRects()].filter(r => r.width > 0 && r.height > 0);
+    const back = isBackward(sel);
+    const rect = (back ? rects[0] : rects[rects.length - 1]) || range.getBoundingClientRect();
+    showPopup(rect, back);
+  }, 0);
+}
+function showPopup(rect, above = false) {
+  popup.hidden = false;
+  $('#pop-input').value = '';
+  const pw = popup.offsetWidth, ph = popup.offsetHeight;
+  const minTop = $('#hdr').getBoundingClientRect().bottom + 8; // don't tuck under the sticky header
+  const fitsAbove = rect.top - ph - 8 > minTop, fitsBelow = rect.bottom + ph + 16 <= innerHeight;
+  const useAbove = above ? fitsAbove || !fitsBelow : !fitsBelow && fitsAbove;
+  const top = useAbove ? rect.top + scrollY - ph - 8 : rect.bottom + scrollY + 8;
+  const left = Math.min(Math.max(rect.left + scrollX + rect.width / 2 - pw / 2, 8 + scrollX), scrollX + document.documentElement.clientWidth - pw - 8);
+  popup.style.top = top + 'px'; popup.style.left = left + 'px';
+}
+function hidePopup() { popup.hidden = true; }
+
+// Mouse and pen: on release, wherever it happens (an upward drag usually ends outside the article).
+// Touch: on a pause in selectionchange, since touch selection has no reliable release event.
+// Ignore clicks that start on a control; judge by where the press began, not where it ended,
+// so a drag that finishes over the search box or Go still counts.
+let lastPointer = 'mouse', downOnControl = false, touchTimer;
+document.addEventListener('pointerdown', e => {
+  lastPointer = e.pointerType || 'mouse';
+  downOnControl = !!e.target.closest?.('button, input, textarea, select, a, #popup, dialog');
+}, true);
+document.addEventListener('pointerup', e => {
+  if (e.pointerType === 'touch' || downOnControl) return;
+  onSelect();
+});
+document.addEventListener('keyup', e => {
+  if (!e.shiftKey || !/^(Arrow|Home|End|Page)/.test(e.key) || e.target.closest?.('input, textarea, select, #popup')) return;
+  onSelect();
+});
+document.addEventListener('selectionchange', () => {
+  if (lastPointer !== 'touch') return;
+  clearTimeout(touchTimer); touchTimer = setTimeout(onSelect, 450);
+});
+document.addEventListener('mousedown', e => { if (!popup.hidden && !popup.contains(e.target)) hidePopup(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') hidePopup(); });
+$$('.pop-actions button').forEach(b => b.addEventListener('mousedown', e => e.preventDefault()));
+popup.addEventListener('click', e => {
+  const act = e.target.closest('button[data-act]')?.dataset.act;
+  if (!act || !pending) return;
+  const p = pending; hidePopup(); getSelection()?.removeAllRanges();
+  if (act === 'explain') addNote(p, null);
+  else if (act === 'visualize') addNote(p, null, 'visualize');
+  else elaborate(p);
+});
+$('#pop-ask').addEventListener('submit', e => {
+  e.preventDefault();
+  const q = $('#pop-input').value.trim();
+  if (!q || !pending) return;
+  const p = pending; hidePopup(); getSelection()?.removeAllRanges();
+  addNote(p, q);
+});
+
+// p (the highlight) is optional: follow-up questions send only the document and recent notes.
+function contextMessage(p, task, { recent: n = 4 } = {}) {
+  const recent = state.notes.slice(-n).map(x =>
+    `Q${x.quote ? ` (about "${truncate(x.quote, 80)}")` : ''}: ${x.question || 'Explain this.'}\nA: ${x.answer}`).join('\n\n');
+  const parts = [`DOCUMENT "${state.title}" (for context):\n<<<\n${stripCites(docContext())}\n>>>`];
+  if (state.sourceImages?.length) parts.push(`AVAILABLE IMAGES (from the source):\n${imageList(state.sourceImages)}`);
+  if (recent) parts.push(`EARLIER MARGIN NOTES (oldest first):\n${recent}`);
+  if (p) parts.push(`PARAGRAPH CONTAINING THE HIGHLIGHT:\n<<<\n${truncate(cleanText(p.block), 3000)}\n>>>`, `HIGHLIGHTED TEXT: "${p.text}"`);
+  parts.push(task);
+  return parts.join('\n\n');
+}
+
+/* ---------------- Margin notes ---------------- */
+// mode: 'explain' (Explain this), 'ask' (typed question) or 'visualize'.
+async function addNote(p, question, mode = question ? 'ask' : 'explain') {
+  if (mode === 'visualize') return visualizeNote(p);
+  const st = state; // a new explanation replaces state; don't write this answer into it
+  if (!p.block.dataset.blockId) assignBlockIds();
+  const blockId = p.block.dataset.blockId || null;
+  $('.notes-hint', notesList)?.remove();
+  const quoteBtn = h('button', { class: 'quote', type: 'button', title: 'Show in text', text: '“' + truncate(p.text, 220) + '”' });
+  quoteBtn.addEventListener('click', () => {
+    if (!p.block.isConnected) return;
+    p.block.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    p.block.classList.remove('flash'); void p.block.offsetWidth; p.block.classList.add('flash');
+  });
+  const ab = h('div', { class: 'bubble a' }, dotsEl());
+  const note = h('div', { class: 'note' }, h('div', { class: 'bubble q' }, quoteBtn, h('div', { text: question || 'Explain this' })), ab);
+  notesList.append(note);
+  note.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  try {
+    const raw = await callLLM({
+      system: withLevel(question ? ASK_SYSTEM : EXPLAIN_SYSTEM, 'side'),
+      user: contextMessage(p, question ? `QUESTION: ${question}` : 'TASK: Explain the highlighted text.')
+    });
+    const { md, root } = await prepare(squash(raw) ? raw.trim() : '_No answer returned._');
+    ab.replaceChildren(...root.childNodes);
+    ab.classList.toggle('wide', !!ab.querySelector('figure, .img-missing'));
+    st.notes.push({ quote: p.text, question, answer: md, blockId, node: ab });
+  } catch (e) {
+    ab.classList.add('err'); ab.replaceChildren(friendlyError(e) || 'Stopped.');
+  }
+  note.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/* ---------------- Visualize ---------------- */
+// A margin note whose answer is one visual plus a short caption.
+const hasVisual = root => !!root.querySelector('figure:not(.broken), img');
+async function visualizeNote(p) {
+  const st = state; // a new explanation replaces state; don't write this answer into it
+  if (!p.block.dataset.blockId) assignBlockIds();
+  const blockId = p.block.dataset.blockId || null;
+  $('.notes-hint', notesList)?.remove();
+  const quoteBtn = h('button', { class: 'quote', type: 'button', title: 'Show in text', text: '“' + truncate(p.text, 220) + '”' });
+  quoteBtn.addEventListener('click', () => {
+    if (!p.block.isConnected) return;
+    p.block.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    p.block.classList.remove('flash'); void p.block.offsetWidth; p.block.classList.add('flash');
+  });
+  const ab = h('div', { class: 'bubble a wide' }, dotsEl());
+  const note = h('div', { class: 'note' }, h('div', { class: 'bubble q' }, quoteBtn, h('div', { text: 'Visualize' })), ab);
+  notesList.append(note);
+  note.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  const NONE = 'Couldn’t make a useful visual for this.';
+  try {
+    const raw = await callLLM({ system: withLevel(VISUALIZE_SYSTEM, 'side'), user: contextMessage(p, 'TASK: Visualize the highlighted text.') });
+    const text = raw.trim();
+    const { root } = /^NO_VISUAL\b/.test(text) || !squash(text) ? { root: h('div') } : await prepare(text);
+    // Validation, repair, image checks and the ASCII guard ran in prepare(); keep only a real visual.
+    if (!hasVisual(root)) {
+      ab.classList.remove('wide');
+      ab.replaceChildren(h('p', { class: 'img-missing', text: NONE }));
+      st.notes.push({ quote: p.text, question: 'Visualize', answer: '(No useful visual could be made.)', blockId, node: ab, failed: true });
+    } else {
+      $$('.img-missing', root).forEach(e => e.remove());
+      ab.replaceChildren(...root.childNodes);
+      // Follow-ups get the caption, not the chart JSON or diagram source.
+      st.notes.push({ quote: p.text, question: 'Visualize', answer: '[A visual] ' + (cleanText(ab) || '(no caption)'), blockId, node: ab, visual: true });
+    }
+  } catch (e) {
+    ab.classList.remove('wide'); ab.classList.add('err'); ab.replaceChildren(friendlyError(e) || 'Stopped.');
+  }
+  note.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/* ---------------- Follow-up box ---------------- */
+const fuForm = $('#followup'), fuInput = $('#followup-input'), fuBtn = $('#followup-btn');
+let fuReady = false, fuBusy = false;
+function syncFollowup() {
+  fuInput.disabled = !fuReady;
+  fuInput.placeholder = fuReady ? 'Ask a follow-up…' : 'Explain something first';
+  fuBtn.disabled = !fuReady || fuBusy;
+}
+function setFollowupReady(on) { fuReady = on; syncFollowup(); }
+function growFollowup() { fuInput.style.height = 'auto'; fuInput.style.height = (fuInput.scrollHeight + 2) + 'px'; }
+function resetFollowup() { fuInput.value = ''; growFollowup(); setFollowupReady(false); }
+fuInput.addEventListener('input', growFollowup);
+fuInput.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); fuForm.requestSubmit(); }
+});
+fuForm.addEventListener('submit', e => {
+  e.preventDefault();
+  const q = fuInput.value.trim();
+  if (!q || !fuReady || fuBusy) return;
+  fuInput.value = ''; growFollowup();
+  askFollowup(q);
+});
+async function askFollowup(question) {
+  const st = state; // a new explanation replaces state; don't write this answer into it
+  $('.notes-hint', notesList)?.remove();
+  const ab = h('div', { class: 'bubble a' }, dotsEl());
+  const note = h('div', { class: 'note' }, h('div', { class: 'bubble q' }, h('div', { class: 'qtext', text: question })), ab);
+  notesList.append(note);
+  note.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  fuBusy = true; syncFollowup();
+  try {
+    const raw = await callLLM({ system: withLevel(FOLLOWUP_SYSTEM, 'side'), user: contextMessage(null, `FOLLOW-UP QUESTION: ${question}`, { recent: 6 }) });
+    const { md, root } = await prepare(squash(raw) ? raw.trim() : '_No answer returned._');
+    ab.replaceChildren(...root.childNodes);
+    ab.classList.toggle('wide', !!ab.querySelector('figure, .img-missing'));
+    st.notes.push({ quote: null, question, answer: md, blockId: null, node: ab });
+  } catch (e) {
+    ab.classList.add('err'); ab.replaceChildren(friendlyError(e) || 'Stopped.');
+    st.notes.push({ quote: null, question, answer: '(No answer: the request failed.)', blockId: null, node: ab, failed: true });
+  } finally {
+    fuBusy = false; syncFollowup();
+  }
+  if (note.isConnected) note.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+/* ---------------- Elaborate ---------------- */
+async function elaborate(p) {
+  const body = h('div', { class: 'elab-body' }, dotsEl());
+  const box = h('aside', { class: 'elab enter' },
+    h('div', { class: 'elab-head' },
+      h('span', { text: 'More on “' + truncate(p.text, 70) + '”' }),
+      h('button', { class: 'elab-close', type: 'button', 'aria-label': 'Close elaboration', text: '×', onclick: () => box.remove() })),
+    body);
+  p.block.after(box);
+  try {
+    const raw = await callLLM({ system: withLevel(ELAB_SYSTEM, 'side'), user: contextMessage(p, 'TASK: Elaborate on the highlighted text.') });
+    const { root } = await prepare(raw.trim().replace(/^#{1,2}\s.*\n/, ''));
+    body.replaceChildren(...root.childNodes);
+    assignBlockIds();
+  } catch (e) {
+    body.replaceChildren(h('p', { class: 'err', text: friendlyError(e) || 'Stopped.' }));
+  }
+}
+
+/* ---------------- Level selector ---------------- */
+const levelSel = $('#level');
+// A native select is as wide as its longest option; size it to the chosen word instead.
+function sizeLevel() {
+  const cs = getComputedStyle(levelSel);
+  const ctx = (sizeLevel.c ||= document.createElement('canvas')).getContext('2d');
+  ctx.font = `${cs.fontStyle} ${cs.fontWeight} ${cs.fontSize} ${cs.fontFamily}`;
+  const w = ctx.measureText(levelSel.selectedOptions[0]?.text || '').width;
+  levelSel.style.width = Math.ceil(w + parseFloat(cs.paddingRight) + parseFloat(cs.paddingLeft) + 2) + 'px';
+}
+levelSel.value = level;
+levelSel.addEventListener('change', () => { level = levelSel.value; lsSet('level', level); sizeLevel(); });
+addEventListener('resize', sizeLevel);
+document.fonts?.ready.then(sizeLevel);
+sizeLevel();
+
+/* ---------------- References toggle ---------------- */
+const refsBtn = $('#refs-btn'), refsSec = $('#refs');
+// Hidden by default for every new explanation; "shown" is never persisted.
+function syncRefs() {
+  const n = state.refs.length, on = state.showRefs && n > 0, count = $('.count', refsBtn);
+  refsBtn.disabled = !n;
+  refsBtn.setAttribute('aria-pressed', String(on));
+  refsBtn.title = !n ? 'No references for this explanation' : on ? 'Hide references' : 'Show references';
+  count.textContent = n ? String(n) : ''; count.hidden = !n;
+  article.classList.toggle('show-refs', on);
+  if (on) refsSec.replaceChildren(...refsNodes(state.refs)); else refsSec.replaceChildren();
+  refsSec.hidden = !on;
+}
+refsBtn.addEventListener('click', () => { if (!state.refs.length) return; state.showRefs = !state.showRefs; syncRefs(); });
+article.addEventListener('click', e => {
+  const a = e.target.closest('sup.cite a');
+  if (!a) return;
+  e.preventDefault();
+  const li = document.getElementById(a.getAttribute('href').slice(1));
+  if (!li) return;
+  li.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  li.classList.remove('flash'); void li.offsetWidth; li.classList.add('flash');
+});
+
+/* ---------------- Export ---------------- */
+const exportBtn = $('#export-btn'), exportMenu = $('#export-menu');
+function syncExport() { exportBtn.disabled = !state.docMd; if (exportBtn.disabled) closeExportMenu(); }
+function closeExportMenu() { exportMenu.hidden = true; exportBtn.setAttribute('aria-expanded', 'false'); }
+exportBtn.addEventListener('click', () => {
+  const open = exportMenu.hidden;
+  exportMenu.hidden = !open; exportBtn.setAttribute('aria-expanded', String(open));
+  if (open) exportMenu.querySelector('button')?.focus();
+});
+exportMenu.addEventListener('click', e => { const f = e.target.closest('button[data-fmt]')?.dataset.fmt; if (f) exportAs(f); });
+document.addEventListener('mousedown', e => { if (!exportMenu.hidden && !e.target.closest('.export-wrap')) closeExportMenu(); });
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && !exportMenu.hidden) { closeExportMenu(); exportBtn.focus(); } });
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const slugify = s => String(s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
+  .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'explanation';
+const LIGHT_VARS = { '--ink': '#1B2130', '--muted': '#586174', '--rule': '#E0E4EB', '--accent': '#2B4C82',
+  '--think-ink': '#8A5A12', '--ok': '#3C8D5A', '--err': '#A23B2A', '--sans': '"Instrument Sans", system-ui, sans-serif' };
+
+const EXPORT_CSS = `
+:root{--ink:#1B2130;--muted:#586174;--faint:#8C94A4;--rule:#E0E4EB;--accent:#2B4C82;--note:#EAEFF7;--hl:#FBEAA0;--think-bg:#FBF5E6;--think-rule:#EADFC2;--think-ink:#8A5A12;--serif:"Newsreader","Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;--sans:"Instrument Sans",system-ui,-apple-system,"Segoe UI",sans-serif;--mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;color-scheme:light}
+*{box-sizing:border-box;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+body{margin:0;background:#fff;color:var(--ink);font-family:var(--serif);font-size:17px;line-height:1.6;font-optical-sizing:auto}
+.export{max-width:72rem;margin:0 auto;padding:3rem 1.5rem 2rem}
+/* One continuous text column; notes float into the margin beside it (Tufte-style). */
+.doc{width:62%}
+.doc-head{margin:0 0 2rem}
+.doc-head h1{font-size:2.3rem;line-height:1.12;font-weight:500;letter-spacing:-.01em;margin:0 0 .55rem}
+.meta{font-family:var(--sans);font-size:.8rem;color:var(--muted);margin:0}
+.meta a{color:inherit}
+h2{font-size:1.4rem;line-height:1.25;font-weight:600;margin:2rem 0 .5rem}
+h3{font-size:1.15rem;line-height:1.3;font-weight:600;margin:1.5rem 0 .4rem}
+h4{font-size:1.02rem;font-weight:600;margin:1.2rem 0 .35rem}
+p{margin:0 0 1em} ul,ol{padding-left:1.35em;margin:0 0 1em} li{margin:.25em 0} li>p{margin:0 0 .4em}
+strong{font-weight:600}
+.dek{font-size:1.2rem;line-height:1.5;font-style:italic;color:var(--muted);margin-bottom:1.6rem}
+a{color:var(--accent);text-decoration-thickness:1px;text-underline-offset:.15em}
+blockquote{margin:1.1em 0;padding-left:1em;border-left:2px solid var(--rule);color:var(--muted);font-style:italic}
+code{font-family:var(--mono);font-size:.82em;background:var(--note);padding:.1em .3em;border-radius:4px}
+pre{background:var(--note);padding:.9rem 1rem;border-radius:8px;font-size:.85rem;line-height:1.5;white-space:pre-wrap;overflow-wrap:anywhere}
+pre code{background:none;padding:0}
+figure{margin:1.5rem 0;text-align:center}
+figure img{max-width:100%;height:auto;border-radius:4px}
+figure svg{max-width:100%;height:auto}
+.svg-fig svg{width:100%;max-width:36rem;color:var(--ink)}
+figcaption{font-family:var(--sans);font-size:.78rem;color:var(--muted);margin-top:.45rem;line-height:1.4}
+.attr{display:block;margin-top:.15rem;font-size:.7rem;color:var(--faint)} .attr a{color:inherit}
+.table-wrap{margin:1.2rem 0}
+table{border-collapse:collapse;width:100%;font-size:.9rem;line-height:1.45}
+th,td{border-bottom:1px solid var(--rule);padding:.4rem .55rem;text-align:left;vertical-align:top}
+th{font-family:var(--sans);font-size:.78rem;font-weight:600;color:var(--muted)}
+math{font-size:1.08em}
+math[display="block"]{display:block;margin:1rem 0}
+hr{border:0;border-top:1px solid var(--rule);margin:2.4rem auto;width:40%}
+.elab{margin:1rem 0 1.4rem;padding:.8rem 1.1rem;border-left:3px solid var(--accent);background:var(--note);border-radius:0 10px 10px 0}
+.elab-head{font-family:var(--sans);font-size:.75rem;color:var(--muted);margin-bottom:.35rem}
+.elab-body{font-size:.98rem}
+.think,.recap{margin:1.5rem 0;padding:.85rem 1.15rem;border:1px solid var(--think-rule);border-left:3px solid var(--think-ink);background:var(--think-bg);border-radius:0 10px 10px 0}
+.think-label,.recap-label{font-family:var(--sans);font-size:.72rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--think-ink);margin:0 0 .3rem}
+.think-q{font-style:italic}
+.think summary{font-family:var(--sans);font-size:.8rem;font-weight:500;color:var(--think-ink)}
+.think-a{margin-top:.4rem}
+.recap-body>p:first-child{font-size:1.15rem;line-height:1.5}
+.think-q>:last-child,.think-a>:last-child,.recap-body>:last-child,.elab-body>:last-child{margin-bottom:0}
+mark{background:var(--hl);color:inherit;padding:0 .05em;border-radius:2px}
+sup.note-ref{font-family:var(--sans);font-size:.62em;font-weight:600;line-height:0;margin-left:.1em}
+sup.note-ref a{color:var(--accent);text-decoration:none}
+/* Sidenotes: 53.2% of the 62% column = ~33% of the page; the negative margin moves them fully into the margin. */
+.sidenote{float:right;clear:right;width:53.2%;margin:.2rem -61.3% .9rem 0;font-family:var(--sans);font-size:.74rem;line-height:1.32;color:var(--ink)}
+.sn-head{display:block;margin:0 0 .12rem}
+.m-num{display:inline-block;min-width:1.4em;padding:0 .3em;line-height:1.4em;text-align:center;border-radius:999px;background:var(--note);color:var(--accent);font-weight:600;font-size:.9em}
+.sn-label{font-variant-caps:all-small-caps;letter-spacing:.03em;font-weight:600;color:var(--muted)}
+.sn-quote{display:block;font-family:var(--serif);font-style:italic;color:var(--muted);margin:0 0 .15rem}
+.sn-body p{margin:0 0 .35em} .sn-body>:last-child{margin-bottom:0}
+.sn-body ul,.sn-body ol{margin:0 0 .35em;padding-left:1.1em} .sn-body li{margin:.1em 0}
+.sidenote figure{margin:.3rem 0;text-align:left}
+.sidenote img,.sidenote figure svg{display:block;max-width:100%;max-height:1.6in;width:auto;height:auto}
+/* Visualize notes: the visual fills the note width (taller ones were already moved to Notes). */
+.sidenote.viz img,.sidenote.viz figure svg{width:100%;max-height:none}
+.sidenote .svg-fig svg,.sidenote .diagram svg{width:100%}
+.sidenote figcaption{font-size:.66rem;margin-top:.2rem;text-align:left}
+.sidenote math[display="block"]{margin:.3rem 0}
+.endnotes,.further,.refs{margin-top:2.4rem;padding-top:1rem;border-top:1px solid var(--rule)}
+.endnotes h2,.further h2,.refs h2{font-size:1.15rem;margin:0 0 .8rem}
+sup.cite{font-family:var(--sans);font-size:.62em;font-weight:600;line-height:0;margin-left:.08em}
+sup.cite a{color:var(--accent);text-decoration:none}
+.ref-list{font-family:var(--sans);font-size:.86rem;line-height:1.45;padding-left:1.7em;margin:0}
+.ref-list li{margin:.4em 0;overflow-wrap:anywhere}
+.ref-list .venue{font-style:italic}
+.ref-list .src-tag{color:var(--faint)}
+.endnote{font-family:var(--sans);font-size:.86rem;line-height:1.45;margin:0 0 1rem;padding-left:.75rem;border-left:2px solid var(--rule)}
+.endnote .sn-quote{font-size:.95rem}
+.endnote figure{margin:.5rem 0;text-align:left}
+.endnote img,.endnote figure svg{display:block;max-width:100%;max-height:4in;width:auto;height:auto}
+.endnote .diagram svg,.endnote .svg-fig svg{width:100%}
+.doc-foot{margin-top:3rem;font-family:var(--sans);font-size:.72rem;color:var(--faint);text-align:center}
+.doc-foot a{color:inherit}
+.render-err{font-family:var(--mono);font-size:.8em;color:#A23B2A}
+.diagram.broken{border:1px dashed var(--rule);border-radius:8px;padding:.8rem 1rem;text-align:left}
+@media screen and (max-width:760px){
+  .doc{width:auto}
+  .sidenote{float:none;width:auto;margin:.4rem 0 1rem;padding:.5rem .7rem;background:#F4F6FA;border-radius:8px}
+}
+@page{size:Letter;margin:.6in}
+@media print{
+  body{font-size:10.5pt}
+  .export{max-width:none;padding:0}
+  .sidenote{font-size:8.5pt;line-height:1.28}
+  .sidenote figcaption{font-size:7pt}
+  h1,h2,h3,h4{break-after:avoid}
+  figure,.recap{break-inside:avoid}
+  a{color:inherit;text-decoration:none}
+  a[href]::after{content:none!important}
+}`;
+
+// Wrap the quoted phrase in <mark> and put the note number after it. Falls back to the end of the block.
+function markQuote(el, quote, ref) {
+  const map = []; let text = '';
+  const tw = document.createTreeWalker(el, NodeFilter.SHOW_TEXT, {
+    acceptNode: t => t.parentElement?.closest('.katex, svg, figure, .elab-head, sup.note-ref, sup.cite') ? NodeFilter.FILTER_REJECT : NodeFilter.FILTER_ACCEPT });
+  while (tw.nextNode()) {
+    const t = tw.currentNode;
+    for (let i = 0; i < t.nodeValue.length; i++) {
+      const c = t.nodeValue[i];
+      if (/\s/.test(c)) { if (!text || text.endsWith(' ')) continue; text += ' '; } else text += c;
+      map.push([t, i]);
+    }
+  }
+  const q = squash(quote), cut = q.lastIndexOf(' ', 48);
+  const tries = [q, q.length > 48 ? q.slice(0, cut > 20 ? cut : 48) : ''].filter(Boolean);
+  for (const t of tries) {
+    let at = text.indexOf(t);
+    if (at < 0) at = text.toLowerCase().indexOf(t.toLowerCase());
+    if (at < 0 || !map[at + t.length - 1]) continue;
+    const [sn, so] = map[at], [en, eo] = map[at + t.length - 1];
+    const r = document.createRange(); r.setStart(sn, so); r.setEnd(en, eo + 1);
+    const mark = document.createElement('mark'); mark.append(r.extractContents()); r.insertNode(mark);
+    mark.after(ref);
+    return true;
+  }
+  ((el.matches('ul, ol') && el.lastElementChild) || el.querySelector(':scope > figcaption') || el).append(ref);
+  return false;
+}
+async function lightMermaid(src) {
+  mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral',
+    fontFamily: '"Instrument Sans", system-ui, sans-serif', flowchart: { htmlLabels: false } });
+  const id = 'exp' + (++mmdSeq);
+  try { return (await mermaid.render(id, src)).svg; }
+  finally {
+    for (const x of [document.getElementById('d' + id), document.getElementById(id)]) if (x && x.parentElement === document.body) x.remove();
+    initMermaid();
+  }
+}
+async function chartToImg(spec) {
+  await loadPlotly();
+  const tmp = h('div'); tmp.style.cssText = 'position:fixed;left:-10000px;top:0;width:720px;height:400px';
+  document.body.append(tmp);
+  try {
+    await Plotly.newPlot(tmp, spec.data, chartLayout(spec.layout || {}, {}, LIGHT_VARS), { staticPlot: true });
+    return await Plotly.toImage(tmp, { format: 'svg', width: 720, height: 400 });
+  } finally { Plotly.purge(tmp); tmp.remove(); }
+}
+
+const NOTE_WIDTH_IN = 7.3 * 0.33; // Letter minus 0.6in margins, ~33% for notes
+// A note is moved to the end-of-document "Notes" section when it's long or its visual is tall.
+function isLongNote(n) {
+  if (!n.node) return wordCount(n.answer || '') > 120;
+  if (wordCount(cleanText(n.node)) > 120) return true;
+  for (const fig of n.node.querySelectorAll('figure')) {
+    const r = fig.querySelector('img, svg, .chart-box')?.getBoundingClientRect();
+    if (r && r.width > 0 && r.height / r.width * NOTE_WIDTH_IN > 2) return true;
+  }
+  return false;
+}
+function firstSentence(n) {
+  const t = squash((n.node ? cleanText(n.node) : n.answer || '').replace(/\$+/g, ''));
+  const m = t.match(/^.{20,}?[.!?](?=\s|$)/);
+  return truncate(m ? m[0] : t, 160);
+}
+async function buildExport() {
+  const st = state;
+  const art = article.cloneNode(true);
+  $$('button, script, .img-missing, .dots', art).forEach(e => e.remove());
+  $$('details', art).forEach(d => d.setAttribute('open', ''));
+  const withRefs = st.showRefs && st.refs.length > 0; // exports include references only while they're shown
+  if (!withRefs) $$('sup.cite', art).forEach(e => e.remove());
+  const h1 = art.querySelector(':scope > h1');
+  const title = squash(h1?.textContent) || st.title || 'Explanation';
+
+  // Anchor each note. Notes on headings move to the first paragraph after the heading.
+  const isHeading = el => /^H[1-6]$/.test(el.tagName);
+  const order = new Map([...art.querySelectorAll('[data-block-id]')].map((el, i) => [el, i]));
+  const anchored = [], further = [];
+  st.notes.filter(n => !n.failed).forEach((n, asked) => {
+    let el = n.blockId ? art.querySelector(`[data-block-id="${n.blockId}"]`) : null;
+    if (el && isHeading(el)) {
+      let x = el.nextElementSibling, firstOther = null;
+      while (x && !isHeading(x) && x.tagName !== 'P') { firstOther ||= x; x = x.nextElementSibling; }
+      el = x && x.tagName === 'P' ? x : firstOther;
+    }
+    if (el) anchored.push({ n, el, asked, pos: order.get(el) ?? 1e9 }); else further.push(n);
+  });
+  anchored.sort((a, b) => a.pos - b.pos || a.asked - b.asked);
+
+  const head = (n, k) => h('span', { class: 'sn-head' }, h('span', { class: 'm-num', text: String(k) }), ' ', h('span', { class: 'sn-label', text: n.question || 'Explain this' }));
+  const quote = (n, len) => n.quote ? h('span', { class: 'sn-quote', text: '“' + truncate(n.quote, len) + '”' }) : null;
+  const answer = n => h('div', { class: 'sn-body' }, ...(n.node ? [...n.node.childNodes].map(c => c.cloneNode(true)) : [h('p', { text: n.answer })]));
+  const endnote = (n, k, id) => h('div', { class: 'endnote', id }, head(n, k), quote(n, 220), answer(n));
+
+  let num = 0, unmatched = 0;
+  const moved = [];
+  for (const a of anchored) {
+    const k = ++num;
+    const ref = h('sup', { class: 'note-ref', id: 'ref-' + k }, h('a', { href: '#note-' + k, text: String(k) }));
+    if (!markQuote(a.el, a.n.quote || '', ref)) unmatched++;
+    let side;
+    if (isLongNote(a.n)) {
+      moved.push({ n: a.n, k });
+      side = h('aside', { class: 'sidenote stub', id: 'note-' + k }, head(a.n, k), quote(a.n, 60),
+        h('div', { class: 'sn-body' }, h('p', {}, firstSentence(a.n) + ' ', h('a', { href: `#note-${k}-full`, text: `(see note ${k})` }))));
+    } else side = h('aside', { class: a.n.visual ? 'sidenote viz' : 'sidenote', id: 'note-' + k }, head(a.n, k), quote(a.n, 60), answer(a.n));
+    // An <aside> can't sit inside a <p> (the HTML parser would split the paragraph), so the note goes
+    // just before the top-level block holding its marker and floats into the margin beside it.
+    let top = ref; while (top.parentElement && top.parentElement !== art) top = top.parentElement;
+    art.insertBefore(side, top);
+  }
+
+  const src = parseInput(st.input || '');
+  const meta = h('p', { class: 'meta' });
+  if (src.kind === 'url') meta.append('Source: ', h('a', { href: src.url, text: src.url.replace(/^https?:\/\//, '') }), ' · ');
+  meta.append(`${LEVEL_RULES[st.level]?.label || 'Standard'} level · ${new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'long', day: 'numeric' })}`);
+  const docEl = h('article', { class: 'doc' }, h('header', { class: 'doc-head' }, h('h1', {}, ...(h1 ? [...h1.childNodes] : [title])), meta));
+  h1?.remove();
+  docEl.append(...art.childNodes);
+  if (withRefs) docEl.append(h('section', { class: 'refs' }, ...refsNodes(st.refs)));
+  if (moved.length) docEl.append(h('section', { class: 'endnotes' }, h('h2', { text: 'Notes' }), ...moved.map(({ n, k }) => endnote(n, k, `note-${k}-full`))));
+  if (further.length) docEl.append(h('section', { class: 'further' }, h('h2', { text: 'Further questions' }), ...further.map(n => { const k = ++num; return endnote(n, k, 'note-' + k); })));
+  docEl.append(h('footer', { class: 'doc-foot' }, 'Made with Let AI Explain · ', h('a', { href: 'https://github.com/viyaleta/let-ai-explain', text: 'github.com/viyaleta/let-ai-explain' })));
+  const doc = h('main', { class: 'export' }, docEl);
+
+  // Visuals: light-theme Mermaid SVG, Plotly as static SVG images; everything else is already inline or by URL.
+  for (const fig of $$('figure.diagram:not(.broken)', doc)) {
+    try { fig.innerHTML = await lightMermaid(fig.dataset.src); } catch (e) { console.warn('Export: diagram kept as shown', e); }
+    delete fig.dataset.src;
+  }
+  for (const fig of $$('figure.chart', doc)) {
+    const label = fig.querySelector('.chart-box')?.getAttribute('aria-label') || 'Chart';
+    try { fig.replaceChildren(h('img', { src: await chartToImg(JSON.parse(fig.dataset.spec)), alt: label })); }
+    catch (e) { console.warn('Export: chart failed', e); fig.replaceChildren(h('p', { class: 'render-err', text: 'This chart couldn’t be exported.' })); }
+    delete fig.dataset.spec; delete fig.dataset.drawn;
+  }
+  // Math as MathML only: browsers draw it natively, so it renders even before (or without) the KaTeX CSS.
+  for (const span of $$('span.math', doc)) {
+    const tex = span.querySelector('annotation[encoding="application/x-tex"]')?.textContent;
+    if (tex == null) continue;
+    try { span.innerHTML = katex.renderToString(tex, { displayMode: span.classList.contains('display'), output: 'mathml', throwOnError: false, strict: 'ignore' }); }
+    catch (e) { console.warn('Export: math kept as shown', e); }
+  }
+  $$('script, iframe, object, embed', doc).forEach(e => e.remove());
+  $$('*', doc).forEach(e => { for (const at of [...e.attributes]) if (/^on/i.test(at.name)) e.removeAttribute(at.name); });
+  if (unmatched || further.length || moved.length) console.info(`Export: ${unmatched} quote(s) not found (marker at block end); ${moved.length} long note(s) moved to Notes; ${further.length} under Further questions.`);
+
+  const html = `<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${esc(title)}</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&family=Instrument+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<style>${EXPORT_CSS}</style>
+</head>
+<body>
+${doc.outerHTML}
+</body>
+</html>`;
+  return { html, title };
+}
+function downloadFile(text, name) {
+  const url = URL.createObjectURL(new Blob([text], { type: 'text/html;charset=utf-8' }));
+  const a = h('a', { href: url, download: name });
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+function printHtml(html, title) {
+  return new Promise(resolve => {
+    const fr = h('iframe', { 'aria-hidden': 'true', tabindex: '-1', title: 'Print preview' });
+    fr.style.cssText = 'position:fixed;left:-10000px;top:0;width:8.5in;height:11in;border:0';
+    fr.addEventListener('load', async () => {
+      const w = fr.contentWindow, d = fr.contentDocument;
+      const wait = ms => new Promise(r => setTimeout(r, ms));
+      const loaded = el => new Promise(r => { el.addEventListener('load', r, { once: true }); el.addEventListener('error', r, { once: true }); });
+      const sheets = [...d.querySelectorAll('link[rel="stylesheet"]')].filter(l => !l.sheet).map(loaded);
+      await Promise.race([Promise.all(sheets), wait(8000)]);
+      await Promise.race([d.fonts?.ready, wait(6000)]).catch(() => {});
+      await Promise.race([Promise.all([...d.images].filter(im => !im.complete).map(loaded)), wait(8000)]);
+      await Promise.race([new Promise(r => w.requestAnimationFrame(() => w.requestAnimationFrame(r))), wait(500)]);
+      const prev = document.title; document.title = title; // some browsers name the PDF after the top page
+      let done = false;
+      const finish = () => { if (done) return; done = true; document.title = prev; setTimeout(() => fr.remove(), 1000); resolve(); };
+      w.addEventListener('afterprint', finish, { once: true });
+      w.focus(); w.print();
+      setTimeout(finish, 120000);
+    }, { once: true });
+    fr.srcdoc = html;
+    document.body.append(fr);
+  });
+}
+async function exportAs(fmt) {
+  closeExportMenu();
+  exportBtn.disabled = true; exportBtn.textContent = 'Exporting…';
+  try {
+    const { html, title } = await buildExport();
+    if (fmt === 'html') downloadFile(html, slugify(title) + '.html');
+    else await printHtml(html, title);
+  } catch (e) {
+    console.error('Export failed', e);
+    setStatus('Export failed: ' + errText(e), true);
+  } finally {
+    exportBtn.textContent = 'Export'; syncExport();
+  }
+}
+
+/* ---------------- Lightbox ---------------- */
+const lb = $('#lightbox'), lbBody = $('.lb-body', lb);
+async function openLightbox(el) {
+  const fig = el.tagName === 'FIGURE' ? el : null;
+  const cap = fig?.querySelector(':scope > figcaption');
+  lbBody.replaceChildren();
+  lb.showModal();
+  if (fig?.classList.contains('chart')) {
+    const box = h('div', { class: 'lb-chart' }); lbBody.append(box);
+    try { await drawChart(box, JSON.parse(fig.dataset.spec), { dragmode: 'zoom' }); }
+    catch { box.replaceWith(h('p', { class: 'img-missing', text: 'This chart couldn’t be drawn.' })); }
+  } else if (fig?.classList.contains('diagram')) {
+    const d = h('figure', { class: 'diagram lb-diagram' }); d.dataset.src = fig.dataset.src; lbBody.append(d);
+    try {
+      await drawDiagram(d);
+      const svg = d.querySelector('svg');
+      if (svg) { svg.style.removeProperty('max-width'); svg.removeAttribute('width'); svg.removeAttribute('height'); }
+    } catch { d.replaceChildren(...[...fig.childNodes].map(n => n.cloneNode(true))); }
+  } else {
+    const img = el.tagName === 'IMG' ? el : fig?.querySelector('img');
+    if (img) {
+      const big = h('img', { src: img.dataset.full || img.currentSrc || img.src, alt: img.alt || '' });
+      big.addEventListener('error', () => { if (big.src !== img.src) big.src = img.src; }, { once: true });
+      lbBody.append(big);
+    } else if (fig) lbBody.append(h('div', { class: 'lb-svg' }, ...[...fig.childNodes].filter(n => n !== cap).map(n => n.cloneNode(true))));
+  }
+  if (cap) lbBody.append(cap.cloneNode(true));
+}
+lb.addEventListener('click', e => { if (!e.target.closest('.js-plotly-plot, a')) lb.close(); });
+lb.addEventListener('close', () => { if (window.Plotly) $$('.js-plotly-plot', lbBody).forEach(x => Plotly.purge(x)); lbBody.replaceChildren(); });
+document.addEventListener('click', e => {
+  const t = e.target;
+  if (lb.open || !(article.contains(t) || notesList.contains(t))) return;
+  if (t.closest('a, button, summary, figcaption, .broken') || !getSelection()?.isCollapsed) return;
+  const fig = t.closest('figure');
+  const el = fig && !fig.classList.contains('think') ? fig : t.closest('img');
+  if (el) openLightbox(el);
+});
+
+/* ---------------- Wire-up ---------------- */
+$('#ask-form').addEventListener('submit', e => { e.preventDefault(); explain($('#q').value); });
+$$('.examples button').forEach(b => b.addEventListener('click', () => explain(b.dataset.ex)));
+new ResizeObserver(() => document.documentElement.style.setProperty('--hdr', $('#hdr').offsetHeight + 'px')).observe($('#hdr'));
+marked.use({ gfm: true });
+applyTheme(lsGet('theme'));
+
+(async () => {
+  const params = new URLSearchParams(location.search);
+  const signin = params.get('signin'), reason = params.get('reason');
+  if (signin) history.replaceState(null, '', '/');
+  // Main area stays empty (both <main> and #gate hidden) until this first check finishes.
+  sessionReady = refreshSession();
+  await sessionReady;
+  if (!signin) return;
+  // Back from the sign-in flow: put the saved input back in the search bar.
+  const p = ssGet('pending'); ssDel('pending');
+  if (p) $('#q').value = p;
+  const showMsg = m => { gateMsg = m; if (!$('#gate').hidden) renderGate(); else setStatus(m, true); };
+  if (signin === 'ok') { if (p && !gateMode()) explain(p); }
+  else if (signin === 'denied') showMsg('Sign-in was cancelled. Choose Continue with ChatGPT to try again.');
+  else if (signin === 'error') showMsg(`Sign-in didn’t finish (${reason || 'unknown error'}). Choose Continue with ChatGPT to try again.`);
+  // signin=noplan needs no message: the gate's plan-usage copy covers it.
+})();
+})();
+</script>
+</body>
+</html>
