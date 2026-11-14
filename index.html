@@ -659,7 +659,7 @@ async function callLLM({ system, user, signal, onText, images }) {
   });
   if (!r.ok) throw await apiError(r);
   const reader = r.body.getReader(), dec = new TextDecoder();
-  let buf = '', text = '', done = false;
+  let buf = '', text = '', done = false, imagesSent = !images?.length;
   for (;;) {
     const { value, done: end } = await reader.read();
     if (end) break;
@@ -672,9 +672,12 @@ async function callLLM({ system, user, signal, onText, images }) {
       if (typeof ev.delta === 'string') { text += ev.delta; onText?.(text); }
       else if (ev.done) done = true;
       else if (ev.error) throw new AppError(ev.error, ev.message);
+      else if (typeof ev.images === 'number') imagesSent = ev.images === images.length;
     }
   }
   if (!done) throw new AppError('interrupted');
+  // An older server drops images silently; then the answer isn't about them.
+  if (!imagesSent) throw new AppError('images_ignored', 'The local server didn’t send the images. Restart let_ai_explain.py.');
   return text;
 }
 
@@ -709,6 +712,7 @@ Math: use LaTeX with inline $...$ and display $$...$$ (put display math on its o
 Diagrams and charts (only when they clearly help; at most 2):
 - Mermaid in a \`\`\`mermaid fenced block (flowchart, sequenceDiagram, stateDiagram-v2, classDiagram, timeline or mindmap). Always wrap node labels in double quotes, e.g. A["Measure position"] --> B["Momentum spread grows"]. No LaTeX inside Mermaid.
 - A Plotly chart in a \`\`\`plotly fenced block for graphs of functions or data. The block holds only JSON: {"data": [traces], "layout": {...}}, with no JavaScript. For a curve given by a formula, use a formula trace instead of points: {"type": "scatter", "mode": "lines", "name": "A = 2", "formula": "2*sin(2*pi*x)", "xrange": [0, 2]}; the app samples it at 400 points. A formula uses x, numbers, + - * / ^, parentheses, pi, e and sin, cos, tan, exp, ln, log10, sqrt, abs, min, max. For measured or tabulated data, list the points (at most about 200 per trace). Label the axes. layout.title is used only as the accessible label and isn't drawn. Don't set colors, fonts, margins, legend, width or height.
+- A map in a \`\`\`plotly block: a "choropleth" trace with ISO-3 country codes highlights countries, e.g. {"type": "choropleth", "locations": ["BLR"], "z": [1], "name": "Belarus"} (give every highlighted country the same z unless the values mean something), and a "scattergeo" trace with "lat", "lon", "text" and mode "markers+text" marks cities. Set layout.geo.scope ("europe", "asia", "africa", "north america", "south america" or "world"); the app zooms the view to the places shown.
 - Or a self-contained SVG in a \`\`\`svg fenced block for geometric or physical sketches: include a viewBox, use currentColor for strokes and text, plain text labels, no scripts, no external references.`;
 
 // Appended to every explanation prompt, with FORMAT_RULES.
@@ -716,7 +720,8 @@ const VISUAL_RULES = `Visuals:
 - When the reader asks to see something (show, picture, image, graphic, diagram, chart, "what does X look like"), the answer must contain a visual plus 1–2 sentences of explanation. Never answer such a request with words only.
 - Pick the best visual, in this order: (a) a figure from AVAILABLE IMAGES if one matches; (b) an image search, if a real photo, a real figure or a famous diagram is wanted; (c) Mermaid for structure or flow; (d) Plotly for graphs of functions or data; (e) SVG for geometric or physical sketches.
 - Embed AVAILABLE IMAGES with ![short caption](exact url). Never invent image URLs or use any URL not in that list.
-- Image search: write a fenced block with the language "image-search" holding only JSON, e.g. {"query": "transformer neural network architecture diagram", "count": 1}. count is 1–3. Use specific, descriptive English terms. The app finds matching images on Wikimedia Commons and credits them.
+- Image search: write a fenced block with the language "image-search" holding only JSON, e.g. {"query": "transformer neural network architecture diagram", "kind": "diagram", "count": 1}. "kind" is required: "map", "diagram", "photo", "artwork" or "chart", the kind of picture that's wanted. count is 1–3. Use specific, descriptive English terms. The app finds matching images on Wikipedia and Wikimedia Commons, checks them and credits them. It writes the image's caption itself after choosing it, so don't describe the image in your text ("this map shows…"); refer to it generally ("the map").
+- Maps: for present-day countries, regions or cities, draw a Plotly geo map (choropleth or scattergeo) instead of searching. Use an image search with "kind": "map" only for historical maps, old borders, or a specific famous map.
 - Never draw diagrams, charts or tables with ASCII art, box-drawing characters or arrow characters in code blocks.
 - Charts: draw math curves with formula traces, never typed-in points.
 - Show a span or interval (a period, a wavelength, a range) as a shaded band (a layout.shapes rect with xref "x", yref "paper") or a bracket (a path shape with end ticks) plus one short label, never as a pair of dots.
@@ -848,10 +853,10 @@ const VISUALIZE_SYSTEM = `${SIDE_BASE} They asked to see it.
 Produce exactly one visual that makes the highlighted idea clearer in this document's context, plus a 1–2 sentence caption, as a plain paragraph right after the visual, that says what to notice in it. No other text: no preamble, no headings, no lists, no second visual.
 Choose the best form, in this order:
 1. A matching figure from AVAILABLE IMAGES, embedded with ![short caption](exact url).
-2. A Plotly chart, if the idea is a quantity, a relationship or a function.
+2. A Plotly chart, if the idea is a quantity, a relationship or a function. For a map of present-day countries, regions or cities, a Plotly geo map.
 3. A Mermaid diagram, for a process, a structure or a comparison.
 4. An SVG sketch, for a spatial or physical setup.
-5. An \`\`\`image-search block, only if a real photo or a well-known figure is the right answer.
+5. An \`\`\`image-search block (with "kind"), only if a real photo, a historical map or a well-known figure is the right answer. Then write no caption: the app captions the image it finds.
 Show the idea, not decoration: label the key parts, use the document's own terms and numbers, and keep it simple enough to read at margin size (a few nodes or labels, one or two traces).
 If no visual could honestly make this clearer, reply with exactly NO_VISUAL.
 The caption (and the choice of what to show) follows these rules where they apply:
@@ -882,7 +887,7 @@ const REPAIR_SYSTEM = `You fix broken formatting snippets. Input is a JSON array
 - "mermaid": Mermaid code. Simplify if needed and wrap every node label in double quotes.
 - "svg": SVG markup.
 - "plotly": a Plotly JSON spec {"data": [...], "layout": {...}}. Return valid plain JSON with no JavaScript. A trace may use "formula" (in x, with + - * / ^, pi, e, sin, cos, exp, ln, sqrt, abs…) and "xrange": [a, b] instead of points.
-- "image-search": JSON {"query": "...", "count": n} for an image search that found nothing usable. Return the same JSON shape with a different English query: shorter, more common terms, or the subject's most standard name. If a real image is unlikely to exist, or the error says the images found had labels in another language, return instead a complete \`\`\`mermaid, \`\`\`svg or \`\`\`plotly fenced block that shows the same idea.
+- "image-search": JSON {"query": "...", "kind": "...", "count": n} for an image search that found nothing usable. Return the same JSON shape (keep "kind") with a different English query: shorter, more common terms, or the subject's most standard name. If a real image is unlikely to exist, or the images found were the wrong kind or had labels in another language, return instead a complete \`\`\`mermaid, \`\`\`svg or \`\`\`plotly fenced block that shows the same idea; for a map of present-day places, a Plotly geo map (choropleth with ISO-3 codes, or scattergeo).
 - "ascii": a diagram drawn with ASCII or box-drawing characters. Convert it to Mermaid code with the same structure, wrapping every node label in double quotes. Return only the Mermaid code.
 Return ONLY a JSON array of {id, fixed}: corrected source with the same meaning. If an item can't be fixed, return "fixed": "" to drop it. No prose, no code fences.`;
 
@@ -1094,7 +1099,8 @@ function tidyChart(spec) {
       t.line = { ...(t.line || {}), shape: 'spline', smoothing: 1 };
     return t;
   });
-  const shown = data.filter(t => t.showlegend !== false && t.visible !== false && t.visible !== 'legendonly').length;
+  // Choropleths stay out of Plotly's legend unless asked; don't count them.
+  const shown = data.filter(t => t.showlegend !== false && t.visible !== false && t.visible !== 'legendonly' && (t.type !== 'choropleth' || t.showlegend === true)).length;
   layout.showlegend = shown > 1;
   if (Array.isArray(layout.annotations)) {
     layout.annotations = layout.annotations.filter(a => a && typeof a === 'object' && annText(a.text)).slice(0, MAX_ANNOTATIONS).map(a => {
@@ -1107,10 +1113,25 @@ function tidyChart(spec) {
   }
   return { spec: { data, layout }, title };
 }
-function chartLayout(layout, extra = {}, vars = null) {
-  const cs = getComputedStyle(document.documentElement), v = n => vars?.[n] ?? cs.getPropertyValue(n).trim();
+const fade = (c, a) => { const m = /^#([0-9a-f]{6})$/i.exec(c); if (!m) return c; const n = parseInt(m[1], 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
+const themeVar = vars => { const cs = getComputedStyle(document.documentElement); return n => vars?.[n] ?? cs.getPropertyValue(n).trim(); };
+const GEO_TYPES = new Set(['choropleth', 'scattergeo']);
+const isGeo = data => (data || []).some(t => GEO_TYPES.has(t?.type));
+// Theme colors for traces the model left uncolored (maps: highlighted countries in the accent color).
+function chartData(data, vars = null) {
+  const v = themeVar(vars);
+  return data.map(t => {
+    if (t?.type !== 'choropleth') return t;
+    const z = Array.isArray(t.z) ? t.z.filter(Number.isFinite) : [], flat = new Set(z).size <= 1;
+    return { locationmode: 'ISO-3', ...t,
+      colorscale: t.colorscale || [[0, fade(v('--accent'), flat ? 1 : 0.3)], [1, v('--accent')]],
+      showscale: t.showscale ?? !flat,
+      marker: { ...(t.marker || {}), line: { color: v('--paper'), width: 0.6, ...(t.marker?.line || {}) } } };
+  });
+}
+function chartLayout(layout, extra = {}, vars = null, data = []) {
+  const v = themeVar(vars);
   const axis = ax => ({ ...(ax || {}), automargin: true, gridcolor: v('--rule'), zerolinecolor: v('--rule'), linecolor: v('--rule'), color: v('--muted') });
-  const fade = (c, a) => { const m = /^#([0-9a-f]{6})$/i.exec(c); if (!m) return c; const n = parseInt(m[1], 16); return `rgba(${n >> 16},${(n >> 8) & 255},${n & 255},${a})`; };
   const L = { ...layout, dragmode: false, ...extra, autosize: true,
     paper_bgcolor: 'rgba(0,0,0,0)', plot_bgcolor: 'rgba(0,0,0,0)',
     font: { family: v('--sans'), color: v('--ink'), size: 12 },
@@ -1119,6 +1140,15 @@ function chartLayout(layout, extra = {}, vars = null) {
     legend: { orientation: 'h', x: 0, xanchor: 'left', y: -0.25, yanchor: 'top', font: { color: v('--muted') } } };
   for (const k of Object.keys(L)) if (/^[xy]axis\d*$/.test(k)) L[k] = axis(L[k]);
   L.xaxis = axis(L.xaxis); L.yaxis = axis(L.yaxis);
+  if (isGeo(data) || L.geo) {
+    // Maps: quiet land and borders in the page's colors, zoomed to the places shown unless the model set the view.
+    const g = L.geo || {}, setView = g.center || g.projection?.scale || g.lonaxis?.range || g.lataxis?.range;
+    L.geo = { showframe: false, showcoastlines: true, showcountries: true, showland: true, showlakes: false, showocean: false,
+      projection: { type: 'natural earth' }, resolution: 50, ...g, showframe: false, framewidth: 0,
+      bgcolor: 'rgba(0,0,0,0)', landcolor: v('--paper2'), countrycolor: v('--faint'), coastlinecolor: v('--faint'),
+      subunitcolor: v('--rule'), fitbounds: g.fitbounds ?? (setView ? false : 'locations') };
+    if (!data.some(t => t && !GEO_TYPES.has(t.type || 'scatter'))) L.margin = { l: 4, r: 4, t: 4, b: L.showlegend ? 48 : 4 };
+  }
   if (Array.isArray(L.annotations)) L.annotations = L.annotations.map(a => ({ ...a, borderpad: 2, bgcolor: fade(v('--paper'), 0.85),
     font: { family: v('--sans'), color: v('--ink'), size: 11 }, arrowcolor: v('--muted'), arrowwidth: 1 }));
   if (Array.isArray(L.shapes)) L.shapes = L.shapes.filter(s => s && typeof s === 'object').map(s => s.type === 'rect' || s.type === 'circle'
@@ -1212,9 +1242,29 @@ async function declutterChart(gd) {
   await Plotly.relayout(gd, update);
   return key;
 }
+// Plotly's fitbounds zooms tight to the highlighted places; widen the view so their neighbors show too.
+async function padGeoView(gd) {
+  const sub = gd._fullLayout?.geo?._subplot;
+  if (gd._fullLayout?.geo?.fitbounds !== 'locations' || !sub?.projection?.invert) return;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const e of gd.querySelectorAll('.choroplethlocation, .scattergeo .point')) {
+    const b = e.getBBox(); if (!b.width && !b.height && !e.matches('.point')) continue;
+    x0 = Math.min(x0, b.x); y0 = Math.min(y0, b.y); x1 = Math.max(x1, b.x + b.width); y1 = Math.max(y1, b.y + b.height);
+  }
+  if (!Number.isFinite(x0)) return;
+  const pts = [[x0, y0], [x1, y0], [x0, y1], [x1, y1]].map(p => sub.projection.invert(p)).filter(p => p && p.every(Number.isFinite));
+  if (pts.length < 4) return;
+  const lon = [Math.min(...pts.map(p => p[0])), Math.max(...pts.map(p => p[0]))], lat = [Math.min(...pts.map(p => p[1])), Math.max(...pts.map(p => p[1]))];
+  const pl = Math.max(2, (lon[1] - lon[0]) * 0.5), pa = Math.max(1.5, (lat[1] - lat[0]) * 0.5);
+  const lo = [Math.max(-180, lon[0] - pl), Math.min(180, lon[1] + pl)], la = [Math.max(-85, lat[0] - pa), Math.min(85, lat[1] + pa)];
+  if (lo[1] - lo[0] > 300) return; // already world-scale
+  await Plotly.relayout(gd, { 'geo.fitbounds': false, 'geo.lonaxis.range': lo, 'geo.lataxis.range': la,
+    ...(la[1] - la[0] < 60 && !gd.layout.geo?.projection?.type?.includes('mercator') ? { 'geo.projection.type': 'mercator' } : {}) });
+}
 async function drawChart(el, spec, extra) {
   await loadPlotly();
-  await Plotly.react(el, spec.data, chartLayout(spec.layout || {}, extra), { displayModeBar: false, responsive: true });
+  await Plotly.react(el, chartData(spec.data), chartLayout(spec.layout || {}, extra, null, spec.data), { displayModeBar: false, responsive: true });
+  await padGeoView(el);
   return declutterChart(el);
 }
 function chartKey(fig, key) {
@@ -1263,9 +1313,10 @@ function toCandidate(pg, words, extra = {}) {
   const meta = ii.extmetadata || {};
   const title = file.replace(/\.\w+$/, '').replace(/_/g, ' ');
   const desc = htmlText(meta.ImageDescription?.value) || htmlText(meta.ObjectName?.value) || title;
+  const cats = String(meta.Categories?.value || '').replace(/\|/g, ' · ');
   const hay = (title + ' ' + desc).toLowerCase();
   return {
-    file, title, desc,
+    file, title, desc, cats, mime: ii.mime,
     thumb: ii.thumburl, full: /\/\d+px-/.test(ii.thumburl) ? ii.thumburl.replace(/\/\d+px-/, '/1280px-') : ii.thumburl,
     page: ii.descriptionurl, caption: truncate(desc, 200),
     artist: truncate(htmlText(meta.Artist?.value), 80) || 'Unknown author',
@@ -1340,47 +1391,92 @@ function thumbData(src) {
     img.src = src;
   });
 }
-const IMAGE_CHECK_SYSTEM = `You check candidate pictures for an explanation a reader is studying. The images are attached in order, index 0 first. For each one decide:
-- text_language: the ISO 639-1 code of the language of the words or labels in the image, or "none" if it has no readable words (numbers, units, single letters and the artist's signature don't count).
-- relevant: true only if it clearly shows what the QUERY and CONTEXT are about.
+// What kind of picture was asked for, and what a file's metadata says it is.
+const IMAGE_KINDS = ['map', 'diagram', 'photo', 'artwork', 'chart'];
+const KIND_WORDS = {
+  map: /\b(maps?|mapa|karte|carte|location|locator|territor(?:y|ies)|borders?|frontiers?|atlas|cartograph\w*|provinces|extent)\b/i,
+  diagram: /\b(diagrams?|schematics?|illustrations?|charts?|scheme|cross[- ]sections?|labell?ed|infographics?)\b/i,
+  chart: /\b(charts?|graphs?|plots?|histograms?|diagrams?)\b/i,
+  artwork: /\b(paintings?|artworks?|frescos?|frescoes|mosaics?|sculptures?|statues?|portraits?|engravings?|museum|oil on|canvas)\b/i,
+  photo: /\b(photo\w*|panoram\w*|aerial view)\b/i
+};
+const PHOTO_CATS = /\b(photographs?|photos? of|images of people|protests?|demonstrations?)\b/i;
+function metaKinds(c) {
+  const all = `${c.title} ${c.desc} ${c.cats}`, kinds = new Set(IMAGE_KINDS.filter(k => KIND_WORDS[k].test(all)));
+  if (c.mime === 'image/jpeg' && !kinds.has('map') && !kinds.has('diagram') && !kinds.has('chart')) kinds.add('photo');
+  return kinds;
+}
+const kindOf = (spec, q) => IMAGE_KINDS.includes(spec?.kind) ? spec.kind : /\bmaps?\b/i.test(q) ? 'map' : /\bdiagram\b/i.test(q) ? 'diagram' : null;
+// Maps, diagrams and charts must say so in their metadata; photos of anything else are dropped for them.
+function kindFilter(cands, kind) {
+  if (kind === 'map' || kind === 'diagram' || kind === 'chart')
+    return cands.filter(c => metaKinds(c).has(kind) && !(c.mime === 'image/jpeg' && PHOTO_CATS.test(c.cats) && !KIND_WORDS[kind].test(c.title)));
+  return [...cands].sort((a, b) => (kind && metaKinds(b).has(kind) ? 1 : 0) - (kind && metaKinds(a).has(kind) ? 1 : 0));
+}
+const imgLog = (msg, ...rest) => console.info('[image-search] ' + msg, ...rest);
+
+const IMAGE_CHECK_SYSTEM = `You check candidate pictures for an explanation a reader is studying. The images are attached in order, index 0 first. For each one report:
+- kind_detected: what the picture actually is: "map", "diagram", "photo", "artwork", "chart" or "other". A photo of people, a street or a building is "photo" even if the subject is a country.
+- matches_request: true only if this picture is the REQUESTED KIND and clearly shows what the QUERY asks for in this CONTEXT (for a map: the right place, and the right period if one is given).
+- text_language: the ISO 639-1 code of the language of the words or labels in the image, or "none" if it has no readable words (numbers, units, single letters and signatures don't count).
 - clear: true if it's sharp and readable at about 600px wide, not cluttered, tiny or mostly decorative.
-Reply with only a JSON array, one object per image: [{"index": 0, "text_language": "en", "relevant": true, "clear": true}]`;
-let visionOff = false; // set once the model refuses image input; then only the metadata filter applies
+Reply with only a JSON array, one object per image: [{"index": 0, "kind_detected": "map", "matches_request": true, "text_language": "en", "clear": true}]`;
+let visionOff = false; // set once the model refuses image input; then only metadata decides
 // The passing candidates of one batch, in order. Null means the check couldn't run.
-async function checkImages(batch, query, context, signal) {
+async function checkImages(batch, query, kind, context, signal) {
   const data = await Promise.all(batch.map(c => thumbData(c.thumb)));
   const shown = batch.filter((_, i) => data[i]), images = data.filter(Boolean);
-  if (!images.length) return [];
-  const user = `QUERY: ${query}\nCONTEXT: ${truncate(context || '(none)', 600)}\nREADER LANGUAGE: ${langName(READER_LANG)} (${READER_LANG})\n${images.length} image${images.length > 1 ? 's' : ''} attached, index 0 to ${images.length - 1}.`;
+  if (!images.length) { imgLog('no thumbnails loaded for', batch.map(c => c.file)); return []; }
+  const user = `QUERY: ${query}\nREQUESTED KIND: ${kind || 'any'}\nCONTEXT: ${truncate(context || '(none)', 600)}\nREADER LANGUAGE: ${langName(READER_LANG)} (${READER_LANG})\n${images.length} image${images.length > 1 ? 's' : ''} attached, index 0 to ${images.length - 1}.`;
   let out;
   try { out = await callLLM({ system: IMAGE_CHECK_SYSTEM, user, images, signal }); }
-  catch (e) { if (e?.name === 'AbortError') throw e; console.warn('Image check skipped', e); visionOff = true; return null; }
+  catch (e) { if (e?.name === 'AbortError') throw e; console.warn('[image-search] visual check skipped: the model or server didn’t take images.', e); visionOff = true; return null; }
   const verdicts = parseJsonArray(out).filter(v => v && Number.isInteger(+v.index) && shown[+v.index]);
-  if (!verdicts.length) return null;
+  if (!verdicts.length) { console.warn('[image-search] visual check gave no usable answer:', out); return null; }
   const langOk = l => { l = String(l || 'none').toLowerCase(); return l === 'none' || l.split(/[-_]/)[0] === READER_LANG; };
-  return verdicts.filter(v => v.relevant === true && v.clear === true && langOk(v.text_language)).map(v => shown[+v.index]);
+  const pass = v => (!kind || v.kind_detected === kind) && v.matches_request === true && v.clear === true && langOk(v.text_language);
+  const rejected = verdicts.filter(v => !pass(v));
+  imgLog(`visual check ran for "${query}" (${kind || 'any kind'}):`, verdicts.map(v => ({ file: shown[+v.index].file, ...v, pass: pass(v) })));
+  if (rejected.length) imgLog('rejected', rejected.map(v => shown[+v.index].file));
+  return verdicts.filter(pass).map(v => shown[+v.index]);
 }
-// Up to `count` images for an image-search block: checked by the model when `vision` is on (fresh answers),
-// otherwise the best by metadata (reopening from History never calls the model).
-async function pickImages(query, count, { context = '', vision = false, signal } = {}) {
-  const key = [query.toLowerCase(), count, context, vision && !visionOff].join('|');
+// Up to `count` images for an image-search block. Fresh answers: checked by the model. Otherwise, or if the check
+// can't run: only files whose metadata clearly matches the kind (or the query). Never an unrelated picture.
+async function pickImages(query, count, { kind = null, context = '', vision = false, signal } = {}) {
+  const key = [query.toLowerCase(), count, kind, context, vision && !visionOff].join('|');
   if (pickCache.has(key)) return pickCache.get(key);
-  const cands = await imageCandidates(query);
+  const all = await imageCandidates(query), cands = kindFilter(all, kind);
+  imgLog(`"${query}" (${kind || 'any kind'}): ${all.length} candidates, ${cands.length} after the kind filter`);
+  const byMeta = from => from.filter(c => kind ? metaKinds(c).has(kind) : c.score > 0).slice(0, count);
   let picks = [];
-  if (!vision || visionOff) picks = cands.slice(0, count);
+  if (!vision || visionOff) { picks = byMeta(cands); if (vision) imgLog('visual check off; picked by metadata:', picks.map(c => c.file)); }
   else for (let start = 0; start < 6 && start < cands.length && picks.length < count; start += 3) {
-    const passed = await checkImages(cands.slice(start, start + 3), query, context, signal);
-    if (passed === null) { picks = cands.slice(start, start + count); break; }
+    const passed = await checkImages(cands.slice(start, start + 3), query, kind, context, signal);
+    if (passed === null) { picks = byMeta(cands.slice(start)); imgLog('picked by metadata instead:', picks.map(c => c.file)); break; }
     picks.push(...passed.slice(0, count - picks.length));
   }
+  if (!picks.length) imgLog(`no image passed for "${query}"`);
   pickCache.set(key, picks);
   return picks;
+}
+// A caption written for the image actually chosen (not the one the model imagined before searching).
+const IMAGE_CAPTION_SYSTEM = `You write the caption for a picture shown to a reader. Describe only what is actually in this picture (use its title, description and, if attached, the image itself) and how it answers the reader's question. 1–2 sentences, at most 45 words, plain text, no preamble, no quotation marks. Don't claim details you can't see or that the description doesn't state.`;
+async function captionImage(c, query, kind, context, signal) {
+  const user = `READER'S QUESTION OR TOPIC: ${truncate(context || query, 400)}\nSEARCHED FOR: ${query}${kind ? ` (a ${kind})` : ''}\nIMAGE TITLE: ${c.title}\nIMAGE DESCRIPTION: ${truncate(c.desc, 600)}`;
+  const img = !visionOff && await thumbData(c.thumb);
+  for (const images of img ? [[img], null] : [null]) {
+    try {
+      const out = squash(await callLLM({ system: IMAGE_CAPTION_SYSTEM, user, signal, ...(images ? { images } : {}) })).replace(/^["“]|["”]$/g, '');
+      if (out) return truncate(out, 320);
+    } catch (e) { if (e?.name === 'AbortError') throw e; console.warn('[image-search] caption call failed' + (images ? ', retrying without the image' : ''), e); }
+  }
+  return c.caption;
 }
 function commonsFigure(r) {
   const img = h('img', { src: r.thumb, alt: r.caption });
   img.dataset.full = r.full;
   return h('figure', { class: 'commons' }, img,
-    h('figcaption', {}, r.caption, h('span', { class: 'attr' }, h('a', { href: r.page, text: `${r.artist}, ${r.license}, via Wikimedia Commons` }))));
+    h('figcaption', {}, h('span', { class: 'cap', text: r.caption || '' }), h('span', { class: 'attr' }, h('a', { href: r.page, text: `${r.artist}, ${r.license}, via Wikimedia Commons` }))));
 }
 // Box-drawing, arrows and the common triangle pointers.
 const ASCII_ART = /[─-╿←-⇿▲►▼◄]/;
@@ -1452,25 +1548,33 @@ async function renderInto(md, root, opts = {}) {
       } catch (e) { errors.push({ kind: 'plotly', source: f?.raw, body: src, error: errText(e) }); markBroken(fig, src, 'This chart couldn’t be drawn.'); }
     } else if (lang === 'image-search') {
       const holder = h('div', { class: 'img-search' }); pre.replaceWith(holder);
-      let q = '', count = 1, files = [], why = '', figs = [];
+      let q = '', count = 1, kind = null, files = [], captions = [], why = '', figs = [];
       try {
         const spec = JSON.parse(src); q = squash(spec?.query); count = Math.min(3, Math.max(1, parseInt(spec?.count, 10) || 1));
+        kind = kindOf(spec, q);
         if (Array.isArray(spec?.files)) files = spec.files.filter(x => typeof x === 'string' && x.trim()).slice(0, 3);
+        if (Array.isArray(spec?.captions)) captions = spec.captions.map(x => typeof x === 'string' ? squash(x) : '');
       } catch {}
       if (!q && !files.length) why = 'Block is not JSON with a "query" string';
       else {
         try {
           // "files": the images already chosen for this block (saved with the explanation), reused as is.
-          const picked = files.length ? (await commonsFiles(files)).filter(Boolean)
-            : await pickImages(q, count, { context: opts.context, vision: !!opts.vision, signal: opts.signal });
-          figs = picked.map(r => { const fg = commonsFigure(r); fg.dataset.file = r.file; return fg; });
+          const picked = files.length ? (await commonsFiles(files)).filter(Boolean).map((r, i) => captions[i] ? { ...r, caption: captions[i] } : r)
+            : await pickImages(q, count, { kind, context: opts.context, vision: !!opts.vision, signal: opts.signal });
+          const byFig = new Map();
+          figs = picked.map(r => { const fg = commonsFigure(r); byFig.set(fg, r); return fg; });
           holder.append(...figs);
           await Promise.all(figs.map(fg => checkImage(fg.querySelector('img'))).filter(Boolean));
           figs = figs.filter(fg => fg.querySelector('img') || (fg.remove(), false));
-          if (!figs.length) why = `No suitable image for "${q}" on Wikipedia or Wikimedia Commons (none found, or the ones found had labels in another language, weren't relevant or weren't clear)`;
-          else if (!files.length && f?.raw && opts.picks) opts.picks.push({ raw: f.raw,
-            block: '```image-search\n' + JSON.stringify({ query: q, count, files: figs.map(fg => fg.dataset.file) }) + '\n```' });
-          figs.forEach(fg => delete fg.dataset.file);
+          if (!figs.length) why = `No suitable ${kind || 'image'} for "${q}" on Wikipedia or Wikimedia Commons (none found, or the ones found were the wrong kind, had labels in another language, weren't relevant or weren't clear)`;
+          else if (!files.length) {
+            // Fresh pick: caption what was actually chosen, then save the choice with the explanation.
+            const caps = opts.vision ? await Promise.all(figs.map(fg => captionImage(byFig.get(fg), q, kind, opts.context, opts.signal)))
+              : figs.map(fg => byFig.get(fg).caption);
+            figs.forEach((fg, i) => { fg.querySelector('figcaption .cap').textContent = caps[i]; fg.querySelector('img').alt = caps[i]; });
+            if (f?.raw && opts.picks) opts.picks.push({ raw: f.raw, block: '```image-search\n' + JSON.stringify({ query: q, kind: kind || undefined, count,
+              files: figs.map(fg => byFig.get(fg).file), captions: caps }) + '\n```' });
+          }
         } catch (e) { why = 'Image search failed: ' + errText(e); }
       }
       // Shown only if the repair pass can't find a better query.
@@ -2206,10 +2310,17 @@ async function visualizeNote(p) {
       st.notes.push({ quote: p.text, question: 'Visualize', answer: '(No useful visual could be made.)', blockId, node: ab, failed: true });
     } else {
       $$('.img-missing', root).forEach(e => e.remove());
+      // A found image carries a caption written for it; drop the one written before the search.
+      let saved = md, found = '';
+      if (root.querySelector('figure.commons')) {
+        for (const el of [...root.children]) if (!el.matches('figure.commons')) el.remove();
+        saved = (md.match(/^```image-search[ \t]*\n[\s\S]*?^```/gm) || [md]).join('\n\n');
+        found = $$('figure.commons img', root).map(i => i.alt).join(' ');
+      }
       ab.replaceChildren(...root.childNodes);
       // Follow-ups get the caption, not the chart JSON or diagram source.
       // md is kept so history can redraw the visual.
-      st.notes.push({ quote: p.text, question: 'Visualize', answer: '[A visual] ' + (cleanText(ab) || '(no caption)'), md, blockId, node: ab, visual: true });
+      st.notes.push({ quote: p.text, question: 'Visualize', answer: '[A visual] ' + (found || cleanText(ab) || '(no caption)'), md: saved, blockId, node: ab, visual: true });
       if (st === state) scheduleSave();
     }
   } catch (e) {
@@ -2394,7 +2505,7 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape' && !exportMen
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const slugify = s => String(s || '').normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase()
   .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'explanation';
-const LIGHT_VARS = { '--paper': '#FFFFFF', '--ink': '#1B2130', '--muted': '#586174', '--rule': '#E0E4EB', '--accent': '#2B4C82',
+const LIGHT_VARS = { '--paper': '#FFFFFF', '--paper2': '#F0F2F6', '--faint': '#8C94A4', '--ink': '#1B2130', '--muted': '#586174', '--rule': '#E0E4EB', '--accent': '#2B4C82',
   '--think-ink': '#8A5A12', '--ok': '#3C8D5A', '--err': '#A23B2A', '--sans': '"Instrument Sans", system-ui, sans-serif' };
 
 const EXPORT_CSS = `
@@ -2536,7 +2647,8 @@ async function chartToImg(spec) {
   const tmp = h('div'); tmp.style.cssText = 'position:fixed;left:-10000px;top:0;width:720px;height:400px';
   document.body.append(tmp);
   try {
-    await Plotly.newPlot(tmp, spec.data, chartLayout(spec.layout || {}, {}, LIGHT_VARS), { staticPlot: true });
+    await Plotly.newPlot(tmp, chartData(spec.data, LIGHT_VARS), chartLayout(spec.layout || {}, {}, LIGHT_VARS, spec.data), { staticPlot: true });
+    await padGeoView(tmp);
     const key = await declutterChart(tmp);
     return { src: await Plotly.toImage(tmp, { format: 'svg', width: 720, height: 400 }), key };
   } finally { Plotly.purge(tmp); tmp.remove(); }

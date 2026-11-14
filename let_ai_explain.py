@@ -663,6 +663,8 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/x-ndjson")
         self.send_header("Cache-Control", "no-store")
         self.end_headers()
+        if images:
+            self.emit({"images": len(images)})  # lets the page know the images were sent, not dropped
         completed = False
         try:
             with upstream:
