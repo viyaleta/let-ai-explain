@@ -145,6 +145,8 @@ Every explanation starts with *why* the idea matters, builds intuition from one 
 
 ## Privacy
 
+The full privacy notice, for the website and the desktop app, is in [PRIVACY.md](PRIVACY.md) (also under **Privacy** at the bottom of the app).
+
 - **Everything runs on your computer.** The app is a small local server. Your requests go only to the AI provider you connected and to the websites you ask it to read.
 - **Everything is saved in one folder on your computer**, readable only by your user account: `~/.config/let-ai-explain/` on macOS and Linux, `%APPDATA%\let-ai-explain\` on Windows.
 - **Your sign-in and API keys** are kept there and sent only to the provider they belong to, never to the browser page or anywhere else.
