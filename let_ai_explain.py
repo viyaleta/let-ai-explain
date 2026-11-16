@@ -14,6 +14,7 @@ import os
 import re
 import secrets
 import shutil
+import subprocess
 import sys
 import threading
 import time
@@ -97,6 +98,28 @@ LOCK = threading.Lock()  # guards credential reads/writes and refresh
 
 
 # ---------------------------------------------------------------- storage
+def app_version():
+    """The release version (version.txt, written by the desktop build), else `git describe` for a
+    copy run from source, else None."""
+    try:
+        v = (ROOT / "version.txt").read_text(encoding="utf-8").strip()
+        if v and v != "0.0.0":
+            return v
+    except OSError:
+        pass
+    if getattr(sys, "frozen", False):
+        return None  # a packaged app without a version file (a local test build)
+    try:
+        out = subprocess.run(["git", "describe", "--tags", "--always"], cwd=ROOT, capture_output=True,
+                             text=True, timeout=2).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.removeprefix("v") or None
+
+
+VERSION = app_version()
+
+
 def read_json(path):
     try:
         return json.loads(path.read_text())
@@ -820,7 +843,7 @@ class Handler(BaseHTTPRequestHandler):
             if not self.api_ok():
                 return self.send_json(403, {"error": "forbidden"})
             if url.path == "/api/config":  # the page runs in local mode only when this says so
-                return self.send_json(200, {"mode": "local"})
+                return self.send_json(200, {"mode": "local", "version": VERSION})
             if url.path == "/api/session":
                 return self.api_session()
             if url.path == "/api/history":
