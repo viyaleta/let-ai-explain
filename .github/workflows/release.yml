@@ -1,8 +1,9 @@
-# Builds the desktop apps and attaches them to a GitHub Release.
+# Builds the desktop apps and uploads them to a GitHub Release as
+#   LetAIExplain-macOS.dmg, LetAIExplain-Windows.zip and LetAIExplain-Windows-Setup.exe
 #
-# Runs when you push a tag like v1.0.0:   git tag v1.0.0 && git push origin v1.0.0
-# You can also run it by hand (Actions tab -> Build desktop apps -> Run workflow) to get the
-# files as build artifacts without making a release.
+# Runs when you publish a release (Releases -> Draft a new release -> pick a tag like v1.0.0 -> Publish).
+# You can also run it by hand (Actions tab -> Build desktop apps -> Run workflow): give it an existing
+# release's tag to (re)upload the files there, or leave the tag empty to only get them as build artifacts.
 #
 # Signing is OPTIONAL. Each signing step runs only if its repository secrets are set
 # (Settings -> Secrets and variables -> Actions); otherwise the builds are unsigned.
@@ -14,14 +15,21 @@
 name: Build desktop apps
 
 on:
-  push:
-    tags: ["v*"]
+  release:
+    types: [published]
   workflow_dispatch:
+    inputs:
+      tag:
+        description: "Upload to the release with this tag (e.g. v1.0.0). Leave empty to only build."
+        required: false
+        default: ""
 
 permissions:
   contents: write
 
 env:
+  # The release's tag (empty for a manual run without one); the app version is the tag without "v".
+  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
   # python.org's macOS installer is universal2 (Intel + Apple Silicon), which a universal app needs.
   MACOS_PYTHON: "3.13.12"
   WINDOWS_PYTHON: "3.13"
@@ -38,10 +46,12 @@ jobs:
       APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG || github.ref }}  # build the code the release points at
 
-      - name: Version from tag
+      - name: Version from the release tag
         run: |
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then V="${GITHUB_REF_NAME#v}"; else V="0.0.0"; fi
+          V="${RELEASE_TAG#v}"; [[ "$V" =~ ^[0-9]+(\.[0-9]+)*$ ]] || V="0.0.0"
           echo "APP_VERSION=$V" >> "$GITHUB_ENV"
 
       - name: Install universal2 Python from python.org
@@ -102,7 +112,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: macos
-          path: out/*
+          path: out/LetAIExplain-macOS.dmg
           if-no-files-found: error
 
   windows:
@@ -115,10 +125,13 @@ jobs:
         shell: pwsh
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG || github.ref }}  # build the code the release points at
 
-      - name: Version from tag
+      - name: Version from the release tag
         run: |
-          $v = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.Substring(1) } else { '0.0.0' }
+          $v = $env:RELEASE_TAG -replace '^v', ''
+          if ($v -notmatch '^\d+(\.\d+)*$') { $v = '0.0.0' }
           "APP_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - uses: actions/setup-python@v5
@@ -171,19 +184,27 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: windows
-          path: out/*
+          path: |
+            out/LetAIExplain-Windows.zip
+            out/LetAIExplain-Windows-Setup.exe
           if-no-files-found: error
 
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
+  upload:
+    if: github.event.release.tag_name != '' || inputs.tag != ''
     needs: [macos, windows]
     runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: files
           merge-multiple: true
-      - uses: softprops/action-gh-release@v2
-        with:
-          files: files/*
-          generate_release_notes: true
+      - name: Upload to the release
+        run: |
+          ls -l files
+          for f in LetAIExplain-macOS.dmg LetAIExplain-Windows.zip LetAIExplain-Windows-Setup.exe; do
+            test -f "files/$f" || { echo "::error::$f was not built"; exit 1; }
+          done
+          gh release upload "$RELEASE_TAG" files/LetAIExplain-macOS.dmg files/LetAIExplain-Windows.zip \
+            files/LetAIExplain-Windows-Setup.exe --repo "$GITHUB_REPOSITORY" --clobber

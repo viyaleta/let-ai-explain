@@ -14,7 +14,7 @@ The easiest way: download the app, open it, and you're done. No Python or termin
 
 | Your computer | Download |
 |---|---|
-| **Mac** (Apple Silicon or Intel, macOS 11+) | [LetAIExplain-macOS.dmg](https://github.com/viyaleta/let-ai-explain/releases/latest/download/LetAIExplain-macOS.dmg) (or the [.zip](https://github.com/viyaleta/let-ai-explain/releases/latest/download/LetAIExplain-macOS.zip)) |
+| **Mac** (Apple Silicon or Intel, macOS 11+) | [LetAIExplain-macOS.dmg](https://github.com/viyaleta/let-ai-explain/releases/latest/download/LetAIExplain-macOS.dmg) |
 | **Windows** 10 or 11 (64-bit) | [LetAIExplain-Windows-Setup.exe](https://github.com/viyaleta/let-ai-explain/releases/latest/download/LetAIExplain-Windows-Setup.exe) (or the portable [.zip](https://github.com/viyaleta/let-ai-explain/releases/latest/download/LetAIExplain-Windows.zip)) |
 
 All versions are on the [Releases page](https://github.com/viyaleta/let-ai-explain/releases/latest).
