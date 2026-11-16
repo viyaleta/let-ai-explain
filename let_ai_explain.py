@@ -42,6 +42,7 @@ PREFERRED_PORT = 1455
 # Files the page needs besides index.html (the "Install app" manifest, service worker and icons).
 STATIC = {"/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
           "/sw.js": ("sw.js", "text/javascript; charset=utf-8"),
+          "/providers.js": ("providers.js", "text/javascript; charset=utf-8"),
           "/icons/icon-192.png": ("icons/icon-192.png", "image/png"),
           "/icons/icon-512.png": ("icons/icon-512.png", "image/png"),
           "/icons/icon-maskable-512.png": ("icons/icon-maskable-512.png", "image/png")}

@@ -1,0 +1,4 @@
+data: {"type": "message_delta", "delta": {"stop_reason": "refusal"}}
+
+data: {"type": "message_stop"}
+

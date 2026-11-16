@@ -1,0 +1,75 @@
+{
+ "/models": {
+  "data": [
+   {
+    "id": "google/gemini-2.5-flash",
+    "name": "Google: Gemini 2.5 Flash",
+    "architecture": {
+     "input_modalities": [
+      "text",
+      "image"
+     ],
+     "output_modalities": [
+      "text"
+     ]
+    }
+   },
+   {
+    "id": "google/gemini-3-flash",
+    "name": "Google: Gemini 3 Flash",
+    "architecture": {
+     "input_modalities": [
+      "text",
+      "image"
+     ],
+     "output_modalities": [
+      "text"
+     ]
+    }
+   },
+   {
+    "id": "anthropic/claude-sonnet-5.5",
+    "name": "Anthropic: Claude Sonnet 5.5",
+    "architecture": {
+     "input_modalities": [
+      "text",
+      "image"
+     ],
+     "output_modalities": [
+      "text"
+     ]
+    }
+   },
+   {
+    "id": "meta-llama/llama-3.3-70b-instruct:free",
+    "name": "Meta: Llama 3.3 70B (free)",
+    "architecture": {
+     "input_modalities": [
+      "text"
+     ],
+     "output_modalities": [
+      "text"
+     ]
+    }
+   },
+   {
+    "id": "black-forest-labs/flux",
+    "name": "FLUX",
+    "architecture": {
+     "input_modalities": [
+      "text"
+     ],
+     "output_modalities": [
+      "image"
+     ]
+    }
+   }
+  ]
+ },
+ "/credits": {
+  "data": {
+   "total_credits": 10,
+   "total_usage": 2.5
+  }
+ }
+}

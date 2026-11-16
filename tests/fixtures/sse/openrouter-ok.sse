@@ -1,0 +1,14 @@
+: OPENROUTER PROCESSING
+
+: OPENROUTER PROCESSING
+
+data: {"model": "meta-llama/llama-3.3-70b-instruct:free", "choices": [{"delta": {"role": "assistant", "reasoning": "Let me think"}}]}
+
+data: {"model": "meta-llama/llama-3.3-70b-instruct:free", "choices": [{"delta": {"reasoning_details": [{"type": "reasoning.text", "text": "more"}]}}]}
+
+data: {"model": "meta-llama/llama-3.3-70b-instruct:free", "choices": [{"delta": {"content": "Hello "}}]}
+
+data: {"model": "meta-llama/llama-3.3-70b-instruct:free", "choices": [{"delta": {"content": "w\u00f6rld \u2713"}, "finish_reason": "stop"}]}
+
+data: [DONE]
+

@@ -16,6 +16,7 @@
 <script src="https://cdn.jsdelivr.net/npm/marked@12.0.2/marked.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/dompurify@3.1.6/dist/purify.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.min.js"></script>
+<script src="/providers.js"></script>
 <style>
 :root{
   --paper:#F7F8FA; --paper2:#F0F2F6; --surface:#FFFFFF;
@@ -394,8 +395,15 @@ main[hidden],#gate[hidden],.gate-btn[hidden],.gate-msg[hidden]{display:none}
 .gate-opts{display:flex;flex-direction:column;gap:.6rem;font-family:var(--sans)}
 .gate-alt{display:flex;flex-direction:column;gap:.6rem}
 .gate-alt[hidden],.key-form[hidden],.gate-saved[hidden],.gate-link[hidden],.gate-hosted[hidden]{display:none}
-.gate-hosted{display:flex;flex-direction:column;align-items:stretch;gap:.6rem}
-.gate-hosted .btn{display:block;text-decoration:none;text-align:center;padding:.8rem 1rem}
+.gate-hosted{margin:0;font-size:.85rem;color:var(--muted);text-align:center}
+.gate-hosted a{color:inherit}
+/* Sits on the button's top edge, so it doesn't squeeze the label. */
+#openrouter-btn{position:relative}
+.opt-badge{position:absolute;top:0;right:.9rem;transform:translateY(-50%);font-size:.62rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;line-height:1;color:var(--accent);background:var(--paper);border:1px solid var(--accent);border-radius:999px;padding:.22rem .5rem}
+.opt-badge[hidden],.hosted-keep[hidden],.gate-or[hidden],.key-note[hidden]{display:none}
+.hosted-keep{display:flex;flex-direction:column;gap:.35rem;text-align:left;margin-top:.2rem}
+.keep-row{display:flex;align-items:center;gap:.5rem;font-size:.85rem;color:var(--ink);cursor:pointer}
+.keep-row input{width:1rem;height:1rem;margin:0;accent-color:var(--accent)}
 /* One option: icon, label, one-line subtitle */
 .gate-btn{box-sizing:border-box;width:100%;min-height:var(--opt-h);display:flex;align-items:center;gap:.8rem;padding:.5rem 1rem;
   border:1px solid var(--rule);border-radius:var(--opt-r);background:var(--surface);color:var(--ink);
@@ -498,10 +506,11 @@ main[hidden],#gate[hidden],.gate-btn[hidden],.gate-msg[hidden]{display:none}
         <span class="opt-text"><span class="opt-label" id="gate-btn-label">Continue with ChatGPT</span><span class="opt-sub">Uses your ChatGPT Plus or Pro plan</span></span>
       </a>
       <div class="gate-alt" id="gate-alt" hidden>
-        <div class="gate-or" aria-hidden="true">or</div>
+        <div class="gate-or" id="gate-or" aria-hidden="true">or</div>
         <a class="gate-btn" id="openrouter-btn" href="/auth/openrouter/start">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="2"/><path d="M7 12h3c2 0 3-1.5 4-3l1-1.5c.6-.9 1.4-1.5 2.5-1.5H21"/><path d="M10 12c2 0 3 1.5 4 3l1 1.5c.6.9 1.4 1.5 2.5 1.5H21"/><path d="m18.5 4 2.5 2.5L18.5 9M18.5 15.5 21 18l-2.5 2.5"/></svg>
           <span class="opt-text"><span class="opt-label">Sign in with OpenRouter</span><span class="opt-sub">Claude, GPT, Gemini and free models</span></span>
+          <span class="opt-badge" id="or-badge" hidden>Recommended</span>
         </a>
         <div class="key-group">
           <button type="button" class="gate-btn" id="key-toggle" aria-expanded="false" aria-controls="key-form">
@@ -532,19 +541,20 @@ main[hidden],#gate[hidden],.gate-btn[hidden],.gate-msg[hidden]{display:none}
                 </div>
                 <p class="msg bad" id="key-msg" role="alert"></p>
                 <button class="btn" type="submit" id="key-save">Save</button>
-                <p class="key-note">The key is checked with the provider, then stored only on this computer.</p>
+                <p class="key-note" id="key-local-note">The key is checked with the provider, then stored only on this computer.</p>
                 <button type="button" class="gate-link" id="key-cancel">Cancel</button>
               </div>
             </form>
           </div>
         </div>
+        <div class="hosted-keep" id="hosted-keep" hidden>
+          <label class="keep-row"><input type="checkbox" id="keep-key"> Remember on this device</label>
+          <p class="key-note" id="hosted-note"></p>
+        </div>
         <div class="gate-saved" id="gate-saved" hidden></div>
         <button type="button" class="gate-link" id="gate-cancel" hidden>Cancel</button>
       </div>
-      <div class="gate-hosted" id="gate-hosted" hidden>
-        <a class="btn" href="https://github.com/viyaleta/let-ai-explain/releases/latest" target="_blank" rel="noopener">Download Let AI Explain</a>
-        <a class="gate-link" href="https://github.com/viyaleta/let-ai-explain#readme" target="_blank" rel="noopener">How to run it with Python</a>
-      </div>
+      <p class="gate-hosted" id="gate-hosted" hidden>Use your ChatGPT plan: <a href="https://github.com/viyaleta/let-ai-explain/releases/latest" target="_blank" rel="noopener">download the app</a></p>
       <p class="oss-note"><svg class="oss-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Let AI Explain is free and open source. See the code, report an issue, or fork it on <a href="https://github.com/viyaleta/let-ai-explain" target="_blank" rel="noopener">GitHub</a>.</span></p>
     </div>
     <p class="gate-msg" id="gate-msg" role="alert" hidden></p>
@@ -648,6 +658,7 @@ const lsSet = (k, v) => { try { localStorage.setItem(PREFIX + k, v); } catch {} 
 const ssGet = k => { try { return sessionStorage.getItem(PREFIX + k); } catch { return null; } };
 const ssSet = (k, v) => { try { sessionStorage.setItem(PREFIX + k, v); } catch {} };
 const ssDel = k => { try { sessionStorage.removeItem(PREFIX + k); } catch {} };
+const lsDel = k => { try { localStorage.removeItem(PREFIX + k); } catch {} };
 function h(tag, attrs = {}, ...kids) {
   const e = document.createElement(tag);
   for (const [k, v] of Object.entries(attrs)) {
@@ -723,9 +734,11 @@ async function detectMode() {
   } catch { appMode = 'local'; }
   return appMode;
 }
-// Every call to the local server (/api/*) goes through here, so hosted mode never sends one.
-const api = (path, opts = {}) => appMode === 'hosted'
-  ? Promise.reject(new AppError('hosted', 'This needs the Let AI Explain app on your computer.'))
+// Every call to /api/* goes through here. On the hosted site only its own functions exist (the page
+// reader and reference check); the local server's endpoints are never called there.
+const HOSTED_API = /^\/api\/(config|fetch|check-url)(\?|$)/;
+const api = (path, opts = {}) => appMode === 'hosted' && !HOSTED_API.test(path)
+  ? Promise.reject(new AppError('hosted', 'That needs the Let AI Explain app on your computer.'))
   : fetch(path, { ...opts, headers: { 'X-Let-AI-Explain': '1', ...(opts.headers || {}) } });
 async function apiError(r) {
   const j = await r.json().catch(() => ({}));
@@ -749,9 +762,61 @@ const currentModel = () => {
   return models.find(x => x.slug === modelDefault)?.slug || models[0]?.slug || want || '';
 };
 
+/* ---------------- Hosted mode: connections kept in this browser ---------------- */
+// API keys (and the key OpenRouter's sign-in returns) stay in this browser: sessionStorage, or
+// localStorage when "Remember on this device" was checked. providers.js sends each key only to
+// its own provider; nothing goes to this site. Model choices are in localStorage.
+const PV = window.LAEProviders;
+const hosted = {
+  read(kind) { try { return JSON.parse((kind === 'local' ? localStorage : sessionStorage).getItem(PREFIX + 'keys') || '{}') || {}; } catch { return {}; } },
+  write(kind, keys) {
+    try {
+      const st = kind === 'local' ? localStorage : sessionStorage;
+      if (Object.keys(keys).length) st.setItem(PREFIX + 'keys', JSON.stringify(keys)); else st.removeItem(PREFIX + 'keys');
+    } catch {}
+  },
+  keys() { return { ...this.read('local'), ...this.read('session') }; },
+  key(p) { return this.keys()[p] || ''; },
+  remembered(p) { return !!this.read('local')[p]; },
+  active() { const a = ssGet('active') || lsGet('active'); return a && PV.PROVIDERS[a] && this.key(a) ? a : null; },
+  save(p, key, remember) {
+    for (const kind of ['session', 'local']) {
+      const k = this.read(kind); delete k[p];
+      if ((kind === 'local') === !!remember) k[p] = key;
+      this.write(kind, k);
+    }
+    this.use(p);
+  },
+  use(p) { ssSet('active', p); if (this.remembered(p)) lsSet('active', p); },
+  forget(p) {
+    for (const kind of ['session', 'local']) { const k = this.read(kind); delete k[p]; this.write(kind, k); }
+    if (ssGet('active') === p) ssDel('active');
+    if (lsGet('active') === p) lsDel('active');
+  },
+  models() { try { return JSON.parse(lsGet('models') || '{}') || {}; } catch { return {}; } },
+  setModel(p, m) { lsSet('models', JSON.stringify({ ...this.models(), [p]: m })); },
+  // The same shape as the local server's /api/session.
+  session() {
+    const p = this.active(), keys = this.keys();
+    const hint = x => (x === 'openrouter' ? '' : PV.maskKey(keys[x]));
+    const saved = Object.keys(keys).filter(x => x !== p && PV.PROVIDERS[x])
+      .map(x => ({ provider: x, name: PV.PROVIDERS[x].name, key_hint: hint(x), email: null }));
+    if (!p) return { connected: false, sharing: false, saved, desktop: false, hosted: true };
+    return { connected: true, provider: p, name: PV.PROVIDERS[p].name, model: this.models()[p] || null, key_hint: hint(p),
+      status: 'ready', sharing: true, usage_url: PV.PROVIDERS[p].usage_url, saved, desktop: false, hosted: true };
+  }
+};
+
 async function refreshSession() {
   let checkError = '';
   const before = session.provider;
+  if (appMode === 'hosted') {
+    session = hosted.session();
+    if (session.provider !== before) { models = []; modelDefault = null; modelsInfo = {}; modelsError = ''; }
+    renderAccount();
+    if (usable()) await loadModels();
+    return;
+  }
   try {
     const r = await api('/api/session');
     if (r.ok) session = await r.json();
@@ -772,9 +837,13 @@ async function refreshSession() {
 }
 async function loadModels() {
   try {
-    const r = await api('/api/models');
-    if (!r.ok) throw await apiError(r);
-    const j = await r.json();
+    let j;
+    if (appMode === 'hosted') j = await PV.listModels(session.provider, hosted.key(session.provider));
+    else {
+      const r = await api('/api/models');
+      if (!r.ok) throw await apiError(r);
+      j = await r.json();
+    }
     models = j.models || []; modelDefault = j.default || null; modelsInfo = j; modelsError = '';
   } catch (e) {
     console.warn('Model list failed', e);
@@ -785,7 +854,8 @@ async function loadModels() {
 }
 // Centered screen shown instead of the panes when the app can't be used yet.
 const GATE = {
-  hosted: { copy: 'Let AI Explain runs on your computer, so it can connect to your ChatGPT plan, OpenRouter account or API key without sending them anywhere else. Download the app, or run python3 let_ai_explain.py, to start explaining things.', hosted: true },
+  hsignin: { copy: 'Connect an AI to start explaining things: sign in with OpenRouter, or use your own API key.', alt: true, hosted: true },
+  hswitch: { copy: 'Choose how to connect. Your explanation stays where it is.', alt: true, hosted: true },
   offline: { copy: 'Can’t reach the Let AI Explain server. Start it with: python3 let_ai_explain.py' },
   signin: { copy: 'Connect an AI to start explaining things: your ChatGPT plan, an OpenRouter account, or your own API key.',
     label: 'Continue with ChatGPT', href: '/auth/start', alt: true },
@@ -795,7 +865,8 @@ const GATE = {
     label: 'Allow ChatGPT plan usage', href: '/auth/start?reconsent=1', alt: true }
 };
 let gateMsg = '', gateInfo = false, sessionReady = Promise.resolve();
-const gateMode = () => appMode === 'hosted' ? 'hosted' : session.checkFailed ? null : session.offline ? 'offline' : switching ? 'switch'
+const gateMode = () => appMode === 'hosted' ? (switching ? 'hswitch' : !session.connected ? 'hsignin' : null)
+  : session.checkFailed ? null : session.offline ? 'offline' : switching ? 'switch'
   : !session.connected ? 'signin' : !usable() ? 'noplan' : null;
 const savedConn = p => (session.saved || []).find(x => x.provider === p);
 function renderGate() {
@@ -809,8 +880,12 @@ function renderGate() {
   btn.hidden = !g.href;
   if (g.href) { $('#gate-btn-label').textContent = g.label; btn.setAttribute('href', g.href); }
   $('#gate-alt').hidden = !g.alt;
-  $('#gate-hosted').hidden = !g.hosted;
-  $('#gate-cancel').hidden = $('#gate-close').hidden = mode !== 'switch';
+  // Hosted: no ChatGPT sign-in (that's the desktop app), OpenRouter first, keys stay in this browser.
+  $('#gate-hosted').hidden = $('#hosted-keep').hidden = $('#or-badge').hidden = !g.hosted;
+  $('#gate-or').hidden = !!g.hosted;
+  $('#key-local-note').hidden = !!g.hosted;
+  syncHostedNote();
+  $('#gate-cancel').hidden = $('#gate-close').hidden = mode !== 'switch' && mode !== 'hswitch';
   // Saved API keys can be used again without pasting them.
   const keys = (session.saved || []).filter(x => KEY_LINKS[x.provider]);
   $('#gate-saved').hidden = !keys.length;
@@ -819,6 +894,37 @@ function renderGate() {
   const msg = mode === 'offline' ? '' : gateMsg;
   $('#gate-msg').textContent = msg; $('#gate-msg').hidden = !msg;
   $('#gate-msg').classList.toggle('info', gateInfo);
+}
+// "Your key stays in this browser and is sent only to <the provider being connected>."
+function syncHostedNote() {
+  const keyOpen = $('#key-toggle').getAttribute('aria-expanded') === 'true';
+  const name = keyOpen ? $('#key-provider').selectedOptions[0].textContent : 'OpenRouter';
+  $('#hosted-note').textContent = `Your key stays in this browser and is sent only to ${name}. Use a key with a spending limit; you can revoke it anytime.`;
+}
+// Hosted: sign in with OpenRouter (OAuth PKCE). OpenRouter sends the browser back to this page
+// with ?code=…, which finishOpenRouterSignin() swaps for a key, in this tab.
+async function startOpenRouterSignin() {
+  const q = $('#q').value.trim();
+  if (q) ssSet('pending', q); else ssDel('pending');
+  try {
+    const { verifier, challenge } = await PV.pkcePair();
+    ssSet('or-verifier', verifier);
+    ssSet('or-remember', $('#keep-key').checked ? '1' : '');
+    location.href = PV.openrouterAuthUrl(location.origin + '/', challenge);
+  } catch (e) { gateMsg = 'Couldn’t start the OpenRouter sign-in in this browser.'; renderGate(); console.warn(e); }
+}
+// Returns null when this load isn't a sign-in return, else [signin, reason] for afterSignin().
+async function finishOpenRouterSignin(params) {
+  const code = params.get('code');
+  if (!code) return null;
+  history.replaceState(null, '', '/' + location.hash);
+  const verifier = ssGet('or-verifier'), remember = ssGet('or-remember') === '1';
+  ssDel('or-verifier'); ssDel('or-remember');
+  if (!verifier) return ['error', 'it was started in another tab or window'];
+  try {
+    hosted.save('openrouter', await PV.openrouterExchange(code, verifier), remember);
+    return ['ok'];
+  } catch (e) { return ['error', friendlyError(e) || 'no key came back']; }
 }
 // Remember what's in the search bar, then leave for the sign-in / consent flow.
 // In the desktop app, sign-in runs in the system browser; the window waits for the result.
@@ -874,6 +980,7 @@ async function afterConnect() {
   if (p && usable()) explain(p);
 }
 async function useConnection(provider) {
+  if (appMode === 'hosted') { hosted.use(provider); return afterConnect(); }
   try {
     const r = await api('/api/connect/use', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider }) });
     if (!r.ok) throw await apiError(r);
@@ -909,7 +1016,10 @@ function renderAccount() {
     : session.provider === 'openrouter' ? 'Requests use your OpenRouter credits; free models cost nothing. '
       + (noCredits ? 'This account has no credits, so pick a free model. ' : '')
     : `Requests are billed to your ${session.name} account. `;
-  $('#acct-usage').replaceChildren(copy, link);
+  const where = session.hosted && on ? (hosted.remembered(session.provider)
+    ? ' Your key is remembered in this browser on this device; Disconnect removes it.'
+    : ' Your key is kept only until you close this tab.') : '';
+  $('#acct-usage').replaceChildren(copy, link, where);
 }
 $('#connect-btn').addEventListener('click', e => { e.preventDefault(); switching = true; renderAccount(); });
 $('#gate-btn').addEventListener('click', e => {
@@ -924,6 +1034,7 @@ $('#openrouter-btn').addEventListener('click', e => {
   e.preventDefault();
   if (savedConn('openrouter')) useConnection('openrouter');
   else if (switching && session.provider === 'openrouter') afterConnect();
+  else if (appMode === 'hosted') startOpenRouterSignin();
   else startAuth('/auth/openrouter/start');
 });
 // The key form slides open under its button (instantly with reduced motion).
@@ -944,14 +1055,14 @@ function setKeyOpen(open) {
     keyCloseTimer = setTimeout(() => { if (!panel.classList.contains('open')) form.hidden = true; }, still ? 0 : 240);
   }
 }
-$('#key-toggle').addEventListener('click', () => setKeyOpen($('#key-toggle').getAttribute('aria-expanded') !== 'true'));
+$('#key-toggle').addEventListener('click', () => { setKeyOpen($('#key-toggle').getAttribute('aria-expanded') !== 'true'); syncHostedNote(); });
 $('#key-cancel').addEventListener('click', () => { setKeyOpen(false); $('#key-toggle').focus(); });
 const syncKeyLink = () => {
   const v = $('#key-provider').value;
   $('#key-get').href = KEY_LINKS[v];
   for (const b of $$('#key-seg [role=radio]')) { const on = b.dataset.value === v; b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; }
 };
-$('#key-provider').addEventListener('change', () => { syncKeyLink(); $('#key-msg').textContent = ''; });
+$('#key-provider').addEventListener('change', () => { syncKeyLink(); syncHostedNote(); $('#key-msg').textContent = ''; });
 // Provider chips: a radio group that sets the hidden select.
 const pickProvider = b => { $('#key-provider').value = b.dataset.value; $('#key-provider').dispatchEvent(new Event('change')); };
 $('#key-seg').addEventListener('click', e => { const b = e.target.closest('[role=radio]'); if (b) pickProvider(b); });
@@ -970,8 +1081,13 @@ $('#key-form').addEventListener('submit', async e => {
   if (!key) { $('#key-msg').textContent = 'Paste your API key first.'; return; }
   save.disabled = true; save.textContent = 'Checking…'; $('#key-msg').textContent = '';
   try {
-    const r = await api('/api/connect/key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider, key }) });
-    if (!r.ok) throw await apiError(r);
+    if (appMode === 'hosted') {
+      await PV.checkKey(provider, key); // the key works if it can list models
+      hosted.save(provider, key, $('#keep-key').checked);
+    } else {
+      const r = await api('/api/connect/key', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ provider, key }) });
+      if (!r.ok) throw await apiError(r);
+    }
     await afterConnect();
   } catch (err) {
     const name = $('#key-provider').selectedOptions[0].textContent;
@@ -979,6 +1095,7 @@ $('#key-form').addEventListener('submit', async e => {
       : err instanceof TypeError ? 'Can’t reach the Let AI Explain server. Is let_ai_explain.py still running?'
       : err?.code === 'upstream_unreachable' ? `Couldn’t reach ${name} to check the key. Check your internet connection.`
       : err?.code === 'rate_limited' ? `${name} is limiting requests right now. Wait a minute and try again.`
+      : err?.code === 'no_models' ? `That ${name} key works, but it has no chat models available.`
       : (err?.message || 'The key couldn’t be checked.');
   } finally { save.disabled = false; save.textContent = 'Save'; }
 });
@@ -1012,12 +1129,14 @@ $('#acct-switch').addEventListener('click', () => { $('#acct').close(); switchin
 $('#model').addEventListener('change', () => {
   const model = $('#model').value;
   session.model = model;
-  api('/api/model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model }) })
+  if (appMode === 'hosted') hosted.setModel(session.provider, model);
+  else api('/api/model', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ model }) })
     .catch(e => console.warn('Couldn’t save the model choice', e));
   renderAccount();
 });
 $('#signout').addEventListener('click', async () => {
-  try { await api('/api/disconnect', { method: 'POST' }); } catch {}
+  if (appMode === 'hosted') hosted.forget(session.provider);
+  else try { await api('/api/disconnect', { method: 'POST' }); } catch {}
   $('#acct').close(); switching = false; models = []; await refreshSession();
 });
 
@@ -1060,6 +1179,43 @@ async function callLLM({ system, user, signal, onText, onProgress, images, effor
   }
 }
 
+// Page events for one answer from the local server's /api/respond (newline-delimited JSON).
+async function* localEvents({ model, system, user, images, effort, signal }) {
+  const r = await api('/api/respond', {
+    method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, instructions: system, input: user, reasoning: effort, ...(images?.length ? { images } : {}) })
+  });
+  if (!r.ok) throw await apiError(r);
+  const reader = r.body.getReader(), dec = new TextDecoder();
+  let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buf += dec.decode(value, { stream: true });
+    let i;
+    while ((i = buf.indexOf('\n')) >= 0) {
+      const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+      if (!line) continue;
+      try { yield JSON.parse(line); } catch {}
+    }
+  }
+}
+// The same events, straight from the provider (hosted mode; see providers.js).
+async function* hostedEvents({ model, system, user, images, effort, signal }) {
+  const provider = session.provider, key = hosted.key(provider);
+  if (!key) throw new AppError('not_signed_in');
+  try {
+    yield* PV.respond({ provider, key, model, instructions: system, input: user, images: images || [], effort, signal });
+  } catch (e) {
+    // OpenAI sends a wrong-key error without CORS headers, so it looks like a network failure.
+    // Ask its model list (which does send them) whether the key still works.
+    if (provider === 'openai' && e?.code === 'upstream_unreachable' && !signal.aborted) {
+      try { await PV.listModels('openai', key); } catch (probe) { if (probe?.code === 'invalid_key') throw probe; }
+    }
+    throw e;
+  }
+}
+
 // One streamed request. With limits, gives up (code free_stalled) when no text arrives in time,
 // the stream goes quiet, or the overall deadline passes.
 async function streamAnswer({ model, system, user, signal, onText, onProgress, images, effort, limits, meta }) {
@@ -1080,23 +1236,13 @@ async function streamAnswer({ model, system, user, signal, onText, onProgress, i
     }, 1000);
   }
   try {
-    const r = await api('/api/respond', {
-      method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ model, instructions: system, input: user, reasoning: effort, ...(images?.length ? { images } : {}) })
-    });
-    if (!r.ok) throw await apiError(r);
-    const reader = r.body.getReader(), dec = new TextDecoder();
-    let buf = '', text = '', done = false, imagesSent = !images?.length;
-    for (;;) {
-      const { value, done: end } = await reader.read();
-      if (end) break;
+    const events = appMode === 'hosted'
+      ? hostedEvents({ model, system, user, images, effort, signal: ctl.signal })
+      : localEvents({ model, system, user, images, effort, signal: ctl.signal });
+    let text = '', done = false, imagesSent = !images?.length || appMode === 'hosted';
+    for await (const ev of events) {
       last = Date.now();
-      buf += dec.decode(value, { stream: true });
-      let i;
-      while ((i = buf.indexOf('\n')) >= 0) {
-        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
-        if (!line) continue;
-        let ev; try { ev = JSON.parse(line); } catch { continue; }
+      {
         if (typeof ev.delta === 'string') {
           text += ev.delta; onText?.(text);
           if (ev.delta) { gotText = true; p.phase = 'writing'; p.words = wordCount(text); report(); }
@@ -1126,7 +1272,8 @@ async function streamAnswer({ model, system, user, signal, onText, onProgress, i
 
 // Entries may be functions when the wording depends on the connected provider.
 const COPY = {
-  not_signed_in: 'Connect an AI first: continue with ChatGPT, sign in with OpenRouter, or use an API key.',
+  not_signed_in: () => appMode === 'hosted' ? 'Connect an AI first: sign in with OpenRouter, or use an API key.'
+    : 'Connect an AI first: continue with ChatGPT, sign in with OpenRouter, or use an API key.',
   session_expired: 'Your ChatGPT session ended. Continue with ChatGPT to sign in again.',
   plan_usage_not_enabled: 'ChatGPT plan usage isn’t enabled. Open the account menu to allow it.',
   subscription_sharing_usage_limit_exceeded: 'You’ve reached the ChatGPT plan usage limit for this app. Review it under Manage usage in the account menu.',
@@ -1159,7 +1306,8 @@ const COPY = {
 };
 function friendlyError(e) {
   if (e?.name === 'AbortError') return null;
-  if (e instanceof TypeError && /fetch|network|load failed/i.test(e.message || '')) return 'Can’t reach the Let AI Explain server. Is let_ai_explain.py still running?';
+  if (e instanceof TypeError && /fetch|network|load failed/i.test(e.message || ''))
+    return appMode === 'hosted' ? 'Can’t reach the internet right now. Check your connection and try again.' : 'Can’t reach the Let AI Explain server. Is let_ai_explain.py still running?';
   if (['session_expired', 'not_signed_in', 'subscription_sharing_invalid_user'].includes(e?.code)) refreshSession();
   const copy = e?.code && COPY[e.code];
   if (copy) return typeof copy === 'function' ? copy(e) : copy;
@@ -3862,28 +4010,23 @@ function registerServiceWorker() {
   }
   if (signin) history.replaceState(null, '', '/');
   // Main area stays empty (both <main> and #gate hidden) until this first check finishes.
-  if (await detectMode() === 'hosted') {
-    // No local server here: show how to get the app; history and theme stay in this browser.
-    renderAccount();
-    registerServiceWorker();
-    await hInit();
-    renderHistoryButton();
-    return;
-  }
-  loadPrefs();
+  // Hosted: connections, history and preferences live in this browser; there's no server to ask.
+  let back = signin ? [signin, reason] : null;
+  if (await detectMode() === 'hosted') back = await finishOpenRouterSignin(params);
+  else loadPrefs();
   sessionReady = refreshSession();
   await sessionReady;
   registerServiceWorker();
   await hInit();
   renderHistoryButton();
-  if (!signin) {
+  if (!back) {
     // Reload (or a link) with #s=<id>: reopen that session from history, if it's still there.
     const id = hashSid();
     if (id && !(await restoreSession(id))) setHash(null, false);
     return;
   }
   // Back from the sign-in flow: put the saved input back in the search bar.
-  afterSignin(signin, reason);
+  afterSignin(...back);
 })();
 })();
 </script>

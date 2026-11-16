@@ -1,0 +1,16 @@
+{
+ "/models": {
+  "data": [
+   {
+    "id": "google/gemini-3-flash",
+    "name": "Google: Gemini 3 Flash"
+   }
+  ]
+ },
+ "/credits": {
+  "data": {
+   "total_credits": 0,
+   "total_usage": 0
+  }
+ }
+}

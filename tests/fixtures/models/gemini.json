@@ -1,0 +1,53 @@
+{
+ "/models": {
+  "models": [
+   {
+    "name": "models/gemini-2.5-flash",
+    "displayName": "Gemini 2.5 Flash",
+    "supportedGenerationMethods": [
+     "generateContent"
+    ]
+   },
+   {
+    "name": "models/gemini-3-flash",
+    "displayName": "Gemini 3 Flash",
+    "supportedGenerationMethods": [
+     "generateContent",
+     "countTokens"
+    ]
+   },
+   {
+    "name": "models/gemini-3.5-flash-preview-11-2026",
+    "displayName": "Gemini 3.5 Flash Preview",
+    "supportedGenerationMethods": [
+     "generateContent"
+    ]
+   },
+   {
+    "name": "models/gemini-3-pro",
+    "displayName": "Gemini 3 Pro",
+    "supportedGenerationMethods": [
+     "generateContent"
+    ]
+   },
+   {
+    "name": "models/gemini-embedding-001",
+    "supportedGenerationMethods": [
+     "embedContent"
+    ]
+   },
+   {
+    "name": "models/gemini-2.5-flash-image",
+    "supportedGenerationMethods": [
+     "generateContent"
+    ]
+   },
+   {
+    "name": "models/gemma-3-27b",
+    "supportedGenerationMethods": [
+     "generateContent"
+    ]
+   }
+  ]
+ }
+}

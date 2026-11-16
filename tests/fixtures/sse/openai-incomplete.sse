@@ -1,0 +1,4 @@
+data: {"type": "response.output_text.delta", "delta": "x"}
+
+data: {"type": "response.incomplete", "response": {"incomplete_details": {"reason": "max_output_tokens"}}}
+

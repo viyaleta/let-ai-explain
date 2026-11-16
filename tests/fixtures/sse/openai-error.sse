@@ -1,0 +1,2 @@
+data: {"type": "error", "error": {"code": "rate_limit_exceeded", "message": "Slow down"}}
+
