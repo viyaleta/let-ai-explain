@@ -4270,6 +4270,22 @@ aboutDlg.addEventListener('click', e => {
 });
 aboutDlg.addEventListener('close', () => { if (aboutFrom?.isConnected) aboutFrom.focus(); aboutFrom = null; });
 
+/* ---------------- Analytics (hosted site only) ---------------- */
+// Vercel Web Analytics: anonymous page-view counts, no cookies, served from this site's own
+// /_vercel/insights (so CSP 'self' covers it). Never loaded locally or in the desktop app, no
+// custom events, and each view is cut to the bare path: no ?query (OpenRouter's sign-in code)
+// and no #s= history id, so nothing about explanations, keys or input leaves the browser.
+function loadAnalytics() {
+  if (appMode !== 'hosted' || document.querySelector('script[data-lae-analytics]')) return;
+  window.va = window.va || function (...args) { (window.vaq = window.vaq || []).push(args); };
+  window.va('beforeSend', ev => {
+    try { const u = new URL(ev.url); return { ...ev, url: u.origin + u.pathname }; } catch { return null; }
+  });
+  const s = document.createElement('script');
+  s.defer = true; s.src = '/_vercel/insights/script.js'; s.dataset.laeAnalytics = '';
+  document.head.append(s);
+}
+
 function registerServiceWorker() {
   if (session.desktop || !('serviceWorker' in navigator) || !window.isSecureContext) return;
   navigator.serviceWorker.register('/sw.js').catch(e => console.info('Install app is unavailable here:', e));
@@ -4285,8 +4301,10 @@ function registerServiceWorker() {
   // Main area stays empty (both <main> and #gate hidden) until this first check finishes.
   // Hosted: connections, history and preferences live in this browser; there's no server to ask.
   let back = signin ? [signin, reason] : null;
-  if (await detectMode() === 'hosted') back = await finishOpenRouterSignin(params);
-  else loadPrefs();
+  if (await detectMode() === 'hosted') {
+    back = await finishOpenRouterSignin(params); // clears ?code= from the address first
+    loadAnalytics();
+  } else loadPrefs();
   sessionReady = refreshSession();
   await sessionReady;
   registerServiceWorker();

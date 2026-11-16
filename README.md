@@ -150,6 +150,7 @@ Every explanation starts with *why* the idea matters, builds intuition from one 
 - **Your sign-in and API keys** are kept there and sent only to the provider they belong to, never to the browser page or anywhere else.
 - **History is saved on this computer** in the same folder (`history/`), shared by the browser and the desktop app. It keeps your 100 most recent explanations and deletes ones older than 30 days. Clear it anytime from the History panel. Your theme and level choices are saved there too (`prefs.json`).
 - **The app can't see your chat history** with ChatGPT or any other service.
+- **The website uses Vercel Web Analytics for anonymous page-view counts (no cookies). The desktop app doesn't.** Only the page address is counted (without anything after `?` or `#`); nothing about your explanations, keys or what you type is sent.
 - **Keep spending in check:**
   - ChatGPT: [ChatGPT settings → Usage](https://chatgpt.com/settings/usage)
   - OpenRouter: set a credit limit on the key at [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys)
