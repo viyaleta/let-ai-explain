@@ -19,4 +19,4 @@ Let AI Explain is built so your keys and explanations stay with you. Last update
 - Clear your history anytime from History. Disconnect from the account menu to remove a saved key, and revoke keys with your provider.
 
 **Questions**
-- [Open an issue on GitHub](https://github.com/viyaleta/let-ai-explain/issues).
+- Email [info@letaiexplain.com](mailto:info@letaiexplain.com) or [open an issue on GitHub](https://github.com/viyaleta/let-ai-explain/issues).

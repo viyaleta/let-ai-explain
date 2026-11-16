@@ -212,6 +212,10 @@ Desktop app: download the latest version from the [Releases page](https://github
 
 ---
 
+## Support
+
+Questions or feedback: email [info@letaiexplain.com](mailto:info@letaiexplain.com?subject=Let%20AI%20Explain%20support). For bug reports, please [open an issue on GitHub](https://github.com/viyaleta/let-ai-explain/issues).
+
 ## License
 
 The source code is released under the [MIT License](LICENSE). Use it, change it and share it freely.
