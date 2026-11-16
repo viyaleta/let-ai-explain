@@ -1,3 +1,5 @@
 # Packages for building the desktop app (not needed to run let_ai_explain.py from source).
 pywebview==6.2.1
 pyinstaller==6.22.3
+# Trusted certificates for HTTPS: python.org's macOS Python has none until its installer step runs.
+certifi==2026.10.23

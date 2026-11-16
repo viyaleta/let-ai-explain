@@ -6,6 +6,7 @@ The packaged apps (see packaging/) run this file.
 """
 import os
 import re
+import subprocess
 import sys
 import threading
 import time
@@ -14,16 +15,30 @@ from pathlib import Path
 
 import let_ai_explain as app
 
-# A windowed app has no console. Send output to a log file so prints don't fail.
-if sys.stdout is None or sys.stderr is None:
-    try:
-        app.CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-        _log = open(app.CONFIG_DIR / "desktop.log", "a", buffering=1, encoding="utf-8")
-    except OSError:
-        import io
-        _log = io.StringIO()
-    sys.stdout = sys.stdout or _log
-    sys.stderr = sys.stderr or _log
+# The app logs to logs/let-ai-explain.log in its data folder (rotated at 1 MB).
+app.setup_logging(to_file=True)
+
+
+class _ToLog:
+    """A packaged app has no console (on macOS its output goes nowhere), so stray prints and
+    tracebacks go to the log instead."""
+    def __init__(self):
+        self.buf = ""
+
+    def write(self, text):
+        self.buf += text
+        while "\n" in self.buf:
+            line, self.buf = self.buf.split("\n", 1)
+            if line.strip():
+                app.log.info("%s", line.rstrip())
+        return len(text)
+
+    def flush(self):
+        pass
+
+
+if getattr(sys, "frozen", False) or sys.stdout is None or sys.stderr is None:
+    sys.stdout = sys.stderr = _ToLog()
 
 import webview  # noqa: E402  (pywebview)
 
@@ -56,6 +71,14 @@ class Desktop:
 
     def open_url(self, url):
         webbrowser.open(url)
+
+    def open_folder(self, path):
+        if sys.platform == "darwin":
+            subprocess.Popen(["open", str(path)])
+        elif sys.platform == "win32":
+            os.startfile(str(path))  # noqa: S606 (our own data folder)
+        else:
+            subprocess.Popen(["xdg-open", str(path)])
 
     def save_html(self, name, html):
         name = re.sub(r'[\\/:*?"<>|]+', "-", name).strip() or "explanation.html"
@@ -98,7 +121,8 @@ def main():
     app.DESKTOP = desktop
     threading.Thread(target=server.serve_forever, daemon=True).start()
     url = f"http://{app.HOST}:{server.server_port}/"
-    print(f"{TITLE} desktop app serving {url}")
+    app.log.info("%s %s desktop app serving %s (packaged: %s; certificates: %s)", TITLE, app.VERSION or "(dev)", url,
+                 bool(getattr(sys, "frozen", False)), app.CERTIFICATES)
 
     webview.settings["OPEN_EXTERNAL_LINKS_IN_BROWSER"] = True  # target=_blank links go to the browser
     desktop.window = webview.create_window(TITLE, url, width=1280, height=800, resizable=True,

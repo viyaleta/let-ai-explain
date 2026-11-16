@@ -27,7 +27,7 @@ a = Analysis(
     datas=[(str(ROOT / "index.html"), "."), (str(ROOT / "manifest.webmanifest"), "."),
            (str(ROOT / "sw.js"), "."), (str(ROOT / "providers.js"), "."), (str(VERSION_TXT), "."),
            (str(ROOT / "icons"), "icons")],
-    hiddenimports=["let_ai_explain", "lae_reader"],
+    hiddenimports=["let_ai_explain", "lae_reader", "certifi"],  # certifi: CA bundle for HTTPS (see trusted_certificates)
     excludes=["tkinter", "unittest", "pydoc_data"],
     noarchive=False,
 )

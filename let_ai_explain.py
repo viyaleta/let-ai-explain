@@ -9,11 +9,15 @@ installed (pip install "pyjwt[crypto]"), the ID token signature is also checked.
 """
 import base64
 import hashlib
+import html
 import json
+import logging
+import logging.handlers
 import os
 import re
 import secrets
 import shutil
+import ssl
 import subprocess
 import sys
 import threading
@@ -87,13 +91,15 @@ HOST_FILE = CONFIG_DIR / "host.json"
 CRED_FILE = CONFIG_DIR / "credentials.json"
 PREFS_FILE = CONFIG_DIR / "prefs.json"
 HISTORY_DIR = CONFIG_DIR / "history"
+LOG_DIR = CONFIG_DIR / "logs"
+LOG_FILE = LOG_DIR / "let-ai-explain.log"
 HISTORY_MAX, HISTORY_DAYS = 100, 30  # keep the newest 100 sessions, none older than 30 days
 SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
 PREFS = {"theme": ("light", "dark", None), "level": ("simple", "standard", "expert")}
 
 PENDING = {}            # state -> pending authorization attempt
 DESKTOP = None          # set by desktop.py: opens links, saves and prints for the app window
-AUTH_RESULT = {"seq": 0, "signin": None, "reason": None}  # last sign-in outcome, polled by the app window
+AUTH_RESULT = {"seq": 0, "signin": None, "reason": None, "detail": None}  # last sign-in outcome, polled by the app window
 LOCK = threading.Lock()  # guards credential reads/writes and refresh
 
 
@@ -479,6 +485,25 @@ def http_json(provider, url, headers, payload=None):
         return json.loads(r.read())
 
 
+def openrouter_exchange(code, verifier):
+    """Trade an OpenRouter sign-in code for a key, logging the HTTP status and any error body."""
+    req = urllib.request.Request(OPENROUTER_API + "/auth/keys", method="POST", data=json.dumps({
+        "code": code, "code_verifier": verifier, "code_challenge_method": "S256"}).encode(),
+        headers={"Accept": "application/json", "Content-Type": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=30) as r:
+            log.info("OpenRouter sign-in: code exchange HTTP %s", r.status)
+            return json.loads(r.read())
+    except urllib.error.HTTPError as e:
+        body = e.read()
+        log.warning("OpenRouter sign-in: code exchange HTTP %s: %s", e.code, redact(body))
+        raise provider_error("openrouter", e.code, body)
+    except urllib.error.URLError as e:
+        log.warning("OpenRouter sign-in: couldn't reach OpenRouter for the code exchange: %s (certificates: %s)",
+                    e.reason, CERTIFICATES)
+        raise AppError("upstream_unreachable", f"Couldn't reach OpenRouter: {e.reason}", 502)
+
+
 # ---------------------------------------------------------------- model lists
 OPENAI_SKIP = re.compile(r"audio|realtime|tts|transcribe|image|search|embedding|moderation|instruct|codex|"
                          r"computer|deep-research|davinci|babbage|gpt-3\.5|-\d{4}-\d{2}-\d{2}$|-\d{4}$")
@@ -840,6 +865,74 @@ def build_request(provider, model, instructions, text, images, max_tokens=16000,
     raise AppError("bad_provider", "Unknown provider.")
 
 
+# ---------------------------------------------------------------- certificates and logging
+log = logging.getLogger("let-ai-explain")
+
+
+def trusted_certificates():
+    """Make sure HTTPS calls have certificates to check servers against.
+
+    The packaged macOS app runs python.org's Python, whose OpenSSL looks for them in
+    /Library/Frameworks/Python.framework/.../etc/openssl, a folder only that Python's own
+    "Install Certificates" step creates. Without it every HTTPS call fails (CERTIFICATE_VERIFY_FAILED).
+    So the packaged app always uses the certifi bundle it ships with; a source run only falls back
+    to it when this Python has no certificates of its own. Windows uses the system store."""
+    if os.environ.get("SSL_CERT_FILE"):
+        return "SSL_CERT_FILE"
+    if sys.platform == "win32":
+        return "system store"
+    paths = ssl.get_default_verify_paths()
+    frozen = getattr(sys, "frozen", False)
+    if not frozen and (paths.cafile or (paths.capath and any(Path(paths.capath).iterdir()))):
+        return paths.cafile or paths.capath
+    try:
+        import certifi
+        os.environ["SSL_CERT_FILE"] = certifi.where()
+        return "certifi"
+    except ImportError:
+        pass
+    if Path("/etc/ssl/cert.pem").is_file():  # macOS keeps the system roots here too
+        os.environ["SSL_CERT_FILE"] = "/etc/ssl/cert.pem"
+        return "/etc/ssl/cert.pem"
+    return "none found"
+
+
+CERTIFICATES = trusted_certificates()
+
+
+def setup_logging(to_file):
+    """The desktop app logs to logs/let-ai-explain.log in its data folder (1 MB, two old copies kept);
+    a terminal run logs to the terminal. Never log keys, codes or full state values."""
+    if log.handlers:
+        return
+    log.setLevel(logging.INFO)
+    log.propagate = False
+    handler = logging.StreamHandler()
+    if to_file:
+        try:
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            os.chmod(LOG_DIR, 0o700)
+            handler = logging.handlers.RotatingFileHandler(LOG_FILE, maxBytes=1_000_000, backupCount=2, encoding="utf-8")
+        except OSError:
+            pass
+    handler.setFormatter(logging.Formatter("%(asctime)s %(levelname)s %(message)s"))
+    log.addHandler(handler)
+
+
+SECRET_SHAPES = re.compile(r"(sk-[A-Za-z0-9_-]{4})[A-Za-z0-9_-]{8,}|(\"(?:key|code|code_verifier|access_token|refresh_token|id_token)\"\s*:\s*\")[^\"]+")
+
+
+def redact(text, limit=400):
+    """A response body for the log: keys and codes cut out, length capped."""
+    text = text.decode("utf-8", "replace") if isinstance(text, bytes) else str(text)
+    return SECRET_SHAPES.sub(lambda m: (m.group(1) + "…") if m.group(1) else m.group(2) + "…", text)[:limit]
+
+
+def short(value):
+    """Enough of a state value to match log lines, not enough to reuse it."""
+    return (value[:6] + "…") if value else "(none)"
+
+
 # ---------------------------------------------------------------- HTTP server
 class Handler(BaseHTTPRequestHandler):
     server_version = "let-ai-explain"
@@ -896,6 +989,8 @@ class Handler(BaseHTTPRequestHandler):
         url = urllib.parse.urlparse(self.path)
         if not self.host_ok():
             if (self.headers.get("Host") or "").startswith("localhost:"):
+                if url.path in (OPENROUTER_CALLBACK, CALLBACK_PATH):
+                    log.info("Sign-in callback %s arrived on %s; sending it on to %s", url.path, self.headers.get("Host"), self.origin)
                 return self.redirect(self.origin + self.path)
             return self.send_json(403, {"error": "forbidden"})
         try:
@@ -1042,14 +1137,18 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     # ---- sign-in
-    def auth_finish(self, location, pending=None):
+    def auth_finish(self, location, pending=None, detail=None):
         """End a sign-in. Callbacks always arrive on 127.0.0.1; the browser goes back to the address
         the sign-in started from (let-ai-explain.localhost when it used that). In the desktop app the
         flow ran in the system browser, so that tab gets a short "go back to the app" page and the
         app window picks the result up from /api/session."""
         q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(location).query))
+        detail = (str(detail)[:300] if detail else None)
         with LOCK:
-            AUTH_RESULT.update(seq=AUTH_RESULT["seq"] + 1, signin=q.get("signin"), reason=q.get("reason"))
+            AUTH_RESULT.update(seq=AUTH_RESULT["seq"] + 1, signin=q.get("signin"), reason=q.get("reason"), detail=detail)
+        log.log(logging.INFO if q.get("signin") in ("ok", "noplan") else logging.WARNING,
+                "Sign-in finished: %s%s%s", q.get("signin"), f" ({q['reason']})" if q.get("reason") else "",
+                f": {redact(detail)}" if detail else "")
         if DESKTOP is None:
             if (pending or {}).get("friendly"):
                 location = f"http://{FRIENDLY_HOST}:{self.server.server_port}{location}"
@@ -1058,17 +1157,32 @@ class Handler(BaseHTTPRequestHandler):
 
     def auth_done(self, q):
         signin = (q.get("signin") or [""])[0]
+        with LOCK:
+            last = dict(AUTH_RESULT)
         title, text = {
             "ok": ("You're signed in", "Go back to the Let AI Explain window. You can close this tab."),
             "noplan": ("Plan usage wasn't allowed", "Go back to the Let AI Explain window to allow it or connect another way."),
             "denied": ("Sign-in was cancelled", "Go back to the Let AI Explain window to try again."),
         }.get(signin, ("Sign-in didn't finish", "Go back to the Let AI Explain window to try again."))
+        why = ""
+        if signin not in ("ok", "noplan", "denied") and last.get("signin") == signin:
+            reason = last.get("reason") or "unknown"
+            why = (f'<p class="why">Reason: {html.escape(reason)}'
+                   + (f" ({html.escape(last['detail'])})" if last.get("detail") else "") + "</p>"
+                   + (f'<p class="why">Details are in {html.escape(str(LOG_FILE))}</p>'
+                      '<p><button type="button" id="logs">Open log folder</button></p>'
+                      # Same-origin call to this server, so the log is reachable before the first sign-in.
+                      "<script>document.getElementById('logs').onclick=()=>fetch('/api/desktop/logs',"
+                      "{method:'POST',headers:{'X-Let-AI-Explain':'1','Content-Type':'application/json'},body:'{}'})</script>"
+                      if DESKTOP is not None else ""))
         body = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{title} · Let AI Explain</title><style>
 :root{{color-scheme:light dark}}body{{margin:0;min-height:100vh;display:grid;place-items:center;font:16px/1.5 system-ui,sans-serif;background:#F7F8FA;color:#14171C}}
 @media (prefers-color-scheme:dark){{body{{background:#15181E;color:#E6E9EF}}}}main{{max-width:26rem;padding:2rem 16px;text-align:center}}
-h1{{font-size:1.4rem;margin:0 0 .5rem}}p{{margin:0;opacity:.75}}</style></head>
-<body><main><h1>{title}</h1><p>{text}</p></main></body></html>""".encode()
+h1{{font-size:1.4rem;margin:0 0 .5rem}}p{{margin:0;opacity:.75}}
+.why{{margin-top:1rem;font-size:.78rem;opacity:.6;overflow-wrap:anywhere}}.why+.why{{margin-top:.25rem}}
+#logs{{margin-top:1rem;font:inherit;font-size:.85rem;padding:.45rem .9rem;border-radius:999px;border:1px solid currentColor;background:none;color:inherit;opacity:.8;cursor:pointer}}#logs:hover{{opacity:1}}</style></head>
+<body><main><h1>{title}</h1><p>{text}</p>{why}</main></body></html>""".encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
@@ -1168,23 +1282,38 @@ h1{{font-size:1.4rem;margin:0 0 .5rem}}p{{margin:0;opacity:.75}}</style></head>
         params = {"callback_url": f"http://localhost:{self.server.server_port}{OPENROUTER_CALLBACK}",
                   "code_challenge": b64url(hashlib.sha256(verifier.encode()).digest()),
                   "code_challenge_method": "S256", "state": state, "key_label": APP_NAME}
+        log.info("OpenRouter sign-in: started on %s (server port %s, %s); callback_url %s; state %s",
+                 self.headers.get("Host"), self.server.server_port, "desktop app" if DESKTOP is not None else "browser",
+                 params["callback_url"], short(state))
         self.redirect(OPENROUTER_AUTH + "?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote))
 
     def openrouter_callback(self, q):
         get = lambda k: (q.get(k) or [""])[0]
-        pending = PENDING.pop(get("state"), None) if get("state") else None
-        if pending is None and not get("state"):
-            # No state echoed back: use the newest OpenRouter attempt. PKCE still binds the code to our verifier.
-            mine = sorted((p for p in PENDING.items() if p[1].get("kind") == "openrouter"), key=lambda p: p[1]["created"])
-            if mine:
-                pending = PENDING.pop(mine[-1][0])
-        if not pending or pending.get("kind") != "openrouter" or time.time() - pending["created"] > 900:
-            return self.auth_finish("/?signin=error&reason=expired", pending)
+        state = get("state")
+        log.info("OpenRouter sign-in: callback on %s (server port %s); state %s; code %s%s", self.headers.get("Host"),
+                 self.server.server_port, short(state), "present" if get("code") else "missing",
+                 f"; error {get('error')!r}" if get("error") else "")
+        with LOCK:
+            waiting = sum(1 for p in PENDING.values() if p.get("kind") == "openrouter")
+            pending = PENDING.pop(state, None) if state else None
+            if pending is None and not state:
+                # No state echoed back: use the newest OpenRouter attempt. PKCE still binds the code to our verifier.
+                mine = sorted((p for p in PENDING.items() if p[1].get("kind") == "openrouter"), key=lambda p: p[1]["created"])
+                if mine:
+                    pending = PENDING.pop(mine[-1][0])
+        if not pending or pending.get("kind") != "openrouter":
+            why = ("no sign-in was started in this app session" if not waiting
+                   else f"the state doesn't match any of {waiting} started sign-in(s)")
+            log.warning("OpenRouter sign-in: state lookup failed: %s", why)
+            return self.auth_finish("/?signin=error&reason=expired", pending, why)
+        age = time.time() - pending["created"]
+        log.info("OpenRouter sign-in: state %s, started %ds ago", "found" if state else "not echoed; used the newest attempt", age)
+        if age > 900:
+            return self.auth_finish("/?signin=error&reason=expired", pending, f"started {int(age // 60)} minutes ago")
         if get("error") or not get("code"):
             return self.auth_finish("/?signin=denied", pending)
         try:
-            data = http_json("openrouter", OPENROUTER_API + "/auth/keys", {}, json.dumps({
-                "code": get("code"), "code_verifier": pending["verifier"], "code_challenge_method": "S256"}).encode())
+            data = openrouter_exchange(get("code"), pending["verifier"])
             key = data.get("key")
             if not isinstance(key, str) or not API_KEY_SHAPE.fullmatch(key):
                 raise AppError("no_key", "OpenRouter didn't return a key.")
@@ -1193,12 +1322,13 @@ h1{{font-size:1.4rem;margin:0 0 .5rem}}p{{margin:0;opacity:.75}}</style></head>
                 cred.setdefault("keys", {})["openrouter"] = key
                 set_active(cred, "openrouter")
                 save_cred(cred)
+            log.info("OpenRouter sign-in: key saved")
             self.auth_finish("/?signin=ok", pending)
         except AppError as e:
-            self.auth_finish("/?signin=error&reason=" + urllib.parse.quote(e.code), pending)
+            self.auth_finish("/?signin=error&reason=" + urllib.parse.quote(e.code), pending, e.message)
         except Exception as e:
-            print(f"OpenRouter sign-in failed: {type(e).__name__}: {e}")
-            self.auth_finish("/?signin=error&reason=" + urllib.parse.quote(type(e).__name__), pending)
+            log.exception("OpenRouter sign-in failed")
+            self.auth_finish("/?signin=error&reason=" + urllib.parse.quote(type(e).__name__), pending, str(e))
 
     # ---- API
     def api_session(self):
@@ -1329,6 +1459,10 @@ h1{{font-size:1.4rem;margin:0 0 .5rem}}p{{margin:0;opacity:.75}}</style></head>
         if action == "print":
             DESKTOP.print_html(str(body.get("html") or ""), str(body.get("title") or "Explanation"))
             return self.send_json(200, {"ok": True})
+        if action == "logs":
+            LOG_DIR.mkdir(parents=True, exist_ok=True)
+            DESKTOP.open_folder(LOG_DIR)
+            return self.send_json(200, {"ok": True})
         raise AppError("not_found", "Unknown action.", 404)
 
     def emit(self, obj):
@@ -1415,6 +1549,7 @@ def main():
     if not (ROOT / "index.html").exists():
         sys.exit("index.html must sit next to let_ai_explain.py")
     migrate_config()
+    setup_logging(to_file=False)
     try:
         server = Server((HOST, PREFERRED_PORT), Handler)
     except OSError:

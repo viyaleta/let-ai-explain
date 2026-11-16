@@ -408,6 +408,9 @@ dialog::backdrop{background:rgba(14,18,28,.38)}
 .connect:hover{opacity:.88}
 .connect[hidden],.chip[hidden]{display:none}
 .acct-email{font-weight:500;margin:0 0 .2rem}
+.acct-logs[hidden]{display:none}
+.text-link{font:inherit;color:var(--muted);background:none;border:0;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:.2em}
+.text-link:hover{color:var(--ink)}
 .small a,.msg a{color:var(--accent)}
 .field select{appearance:auto}
 #status a{color:inherit;text-decoration:underline}
@@ -748,6 +751,7 @@ main[hidden],#gate[hidden],.gate-btn[hidden],.gate-msg[hidden]{display:none}
       <p class="model-note" id="free-note" hidden>Free models have lower limits and can be busy. <a href="https://openrouter.ai/collections/free-models" target="_blank" rel="noopener">See all free models</a></p>
     </div>
     <p class="small" id="acct-usage"></p>
+    <p class="small acct-logs" id="acct-logs" hidden><button type="button" class="text-link" id="open-logs">Open log folder</button></p>
   </div>
   <div class="dlg-foot">
     <button class="btn quiet" type="button" id="signout">Disconnect</button>
@@ -1125,6 +1129,7 @@ function renderAccount() {
   $('#acct-plan').hidden = !chatgpt || !session.sharing;
   $('#acct-noplan').hidden = !on || !chatgpt || !!session.sharing;
   $('#acct-err').textContent = modelsError; $('#acct-err').hidden = !modelsError;
+  $('#acct-logs').hidden = !session.desktop; // the desktop app's log: logs/let-ai-explain.log in its data folder
   $('#model-field').hidden = !usable() || !models.length;
   renderModelPicker();
   const link = h('a', { href: session.usage_url || 'https://chatgpt.com/settings/usage', target: '_blank', rel: 'noopener',
@@ -1273,6 +1278,7 @@ document.addEventListener('keydown', e => {
 });
 $('#acct-btn').addEventListener('click', () => { renderAccount(); $('#acct').showModal(); });
 $('#dlg-done').addEventListener('click', () => $('#acct').close());
+$('#open-logs').addEventListener('click', () => desktopCall('logs', {}).catch(e => { $('#acct-err').textContent = friendlyError(e) || 'Couldn’t open the log folder.'; $('#acct-err').hidden = false; }));
 $('#acct-switch').addEventListener('click', () => { $('#acct').close(); switching = true; gateMsg = ''; renderAccount(); });
 $('#model').addEventListener('change', () => {
   const model = $('#model').value;
