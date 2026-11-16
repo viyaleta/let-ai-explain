@@ -338,6 +338,15 @@ dialog::backdrop{background:rgba(14,18,28,.38)}
 .btn.quiet{background:none;border:0;color:var(--muted);padding:.6rem .4rem}
 .btn.quiet:hover{color:var(--err)}
 .small{font-size:.8rem;color:var(--muted);line-height:1.5;margin:.2rem 0 .9rem}
+/* OpenRouter model picker: Free tag, "Free only" toggle and the note under it. */
+.model-head{display:flex;align-items:center;justify-content:space-between;gap:.75rem}
+.model-head > label[for=model]{display:inline-flex;align-items:center;gap:.45rem}
+.free-tag{font-size:.66rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;line-height:1;color:var(--accent);border:1px solid var(--accent);border-radius:999px;padding:.18rem .45rem}
+.free-tag[hidden],.model-free[hidden],.model-note[hidden]{display:none}
+.field .model-free{font-size:.8rem;font-weight:400;color:var(--muted);gap:.4rem}
+.field .model-free input{width:.95rem;height:.95rem;padding:0;border:0;background:none}
+.model-note{margin:.1rem 0 0;font-size:.76rem;line-height:1.45;color:var(--faint)}
+.model-note a{color:var(--muted)}
 .msg{font-size:.82rem;min-height:1.2em;margin:.1rem 0 .8rem;color:var(--muted)}
 .msg.ok{color:var(--ok)} .msg.bad{color:var(--err)}
 /* About: serif body, sans headings and links; full width minus 16px gutters on phones. */
@@ -679,8 +688,12 @@ main[hidden],#gate[hidden],.gate-btn[hidden],.gate-msg[hidden]{display:none}
     <p class="msg bad" id="acct-noplan" hidden>ChatGPT plan usage isn’t enabled for this connection. <a id="reconsent-link" href="/auth/start?reconsent=1">Allow it in ChatGPT</a></p>
     <p class="msg bad" id="acct-err" hidden></p>
     <div class="field" id="model-field">
-      <label for="model">Model</label>
+      <div class="model-head">
+        <label for="model">Model <span class="free-tag" id="model-free-tag" hidden>Free</span></label>
+        <label class="keep-row model-free" id="free-only-row" hidden><input type="checkbox" id="free-only"> Free only</label>
+      </div>
       <select id="model"></select>
+      <p class="model-note" id="free-note" hidden>Free models have lower limits and can be busy. <a href="https://openrouter.ai/collections/free-models" target="_blank" rel="noopener">See all free models</a></p>
     </div>
     <p class="small" id="acct-usage"></p>
   </div>
@@ -801,6 +814,8 @@ async function apiError(r) {
 }
 
 let session = { connected: false, sharing: false }, models = [], modelDefault = null, modelsInfo = {}, modelsError = '';
+// OpenRouter's "Free only" toggle: the reader's choice, else on when the account has no credits.
+let freeOnlyChoice = null;
 let switching = false; // the connection chooser is open while still connected
 const KEY_LINKS = {
   openai: 'https://platform.openai.com/api-keys',
@@ -867,7 +882,7 @@ async function refreshSession() {
   const before = session.provider;
   if (appMode === 'hosted') {
     session = hosted.session();
-    if (session.provider !== before) { models = []; modelDefault = null; modelsInfo = {}; modelsError = ''; }
+    if (session.provider !== before) { models = []; modelDefault = null; modelsInfo = {}; modelsError = ''; freeOnlyChoice = null; }
     renderAccount();
     if (usable()) await loadModels();
     return;
@@ -884,7 +899,7 @@ async function refreshSession() {
     }
   }
   catch { session = { connected: false, offline: true }; }
-  if (session.provider !== before) { models = []; modelDefault = null; modelsInfo = {}; modelsError = ''; }
+  if (session.provider !== before) { models = []; modelDefault = null; modelsInfo = {}; modelsError = ''; freeOnlyChoice = null; }
   renderAccount();
   if (checkError) setStatus(checkError, true);
   else if (statusEl.classList.contains('error') && /^Couldn’t check your sign-in/.test($('#status-text').textContent)) setStatus(null);
@@ -1061,9 +1076,7 @@ function renderAccount() {
   $('#acct-noplan').hidden = !on || !chatgpt || !!session.sharing;
   $('#acct-err').textContent = modelsError; $('#acct-err').hidden = !modelsError;
   $('#model-field').hidden = !usable() || !models.length;
-  const sel = $('#model');
-  sel.replaceChildren(...models.map(x => h('option', { value: x.slug, text: x.name })));
-  sel.value = currentModel();
+  renderModelPicker();
   const link = h('a', { href: session.usage_url || 'https://chatgpt.com/settings/usage', target: '_blank', rel: 'noopener',
     text: chatgpt ? 'Manage usage' : session.provider === 'openrouter' ? 'Credits and usage' : 'Usage and limits' });
   const noCredits = session.provider === 'openrouter' && typeof modelsInfo.credits === 'number' && modelsInfo.credits <= 0;
@@ -1076,6 +1089,36 @@ function renderAccount() {
     : ' Your key is kept only until you close this tab.') : '';
   $('#acct-usage').replaceChildren(copy, link, where);
 }
+// OpenRouter: free models first (the free router, then the rest), grouped, with an optional filter.
+// A native <select> keeps keyboard and screen-reader support, so "Free" is a group label there and a
+// tag beside "Model" for the chosen one. Other providers get the plain list.
+const isFreeModel = m => !!m && (m.slug === FREE_ROUTER || m.slug.endsWith(':free')
+  || (m.price?.input === 0 && m.price?.output === 0));
+const freeOnlyOn = () => freeOnlyChoice ?? (typeof modelsInfo.credits === 'number' && modelsInfo.credits <= 0);
+function renderModelPicker() {
+  const sel = $('#model'), cur = currentModel(), or = session.provider === 'openrouter';
+  const opt = m => h('option', { value: m.slug, text: or && m.slug === FREE_ROUTER ? 'Free Models Router (openrouter/free)' : m.name });
+  $('#free-only-row').hidden = $('#free-note').hidden = !or;
+  $('#model-free-tag').hidden = !or || !isFreeModel(models.find(m => m.slug === cur));
+  if (!or) {
+    sel.replaceChildren(...models.map(opt));
+  } else {
+    const free = models.filter(isFreeModel).sort((a, b) => (b.slug === FREE_ROUTER) - (a.slug === FREE_ROUTER));
+    const paid = models.filter(m => !isFreeModel(m));
+    const only = freeOnlyOn();
+    $('#free-only').checked = only;
+    const groups = [h('optgroup', { label: 'Free' }, ...free.map(opt))];
+    if (!only) groups.push(h('optgroup', { label: 'Paid' }, ...paid.map(opt)));
+    else { // keep a paid model that's already chosen, so filtering doesn't change it behind the reader's back
+      const chosen = paid.find(m => m.slug === cur);
+      if (chosen) groups.push(h('optgroup', { label: 'Chosen (paid)' }, opt(chosen)));
+    }
+    sel.replaceChildren(...groups);
+  }
+  sel.value = cur;
+}
+$('#free-only').addEventListener('change', () => { freeOnlyChoice = $('#free-only').checked; renderModelPicker(); });
+
 $('#connect-btn').addEventListener('click', e => { e.preventDefault(); switching = true; renderAccount(); });
 $('#gate-btn').addEventListener('click', e => {
   e.preventDefault();
