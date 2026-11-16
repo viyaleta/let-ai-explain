@@ -86,7 +86,7 @@ jobs:
       APP: dist/Let AI Explain.app
       DMG: out/LetAIExplain-macOS.dmg
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs.prepare.outputs.ref }}  # the code the tag points at
 
@@ -185,8 +185,36 @@ jobs:
       - name: Staple the notarization ticket
         if: env.SIGN == 'true'
         run: |
-          xcrun stapler staple "$DMG"
-          xcrun stapler validate "$DMG"
+          # stapler talks to Apple's ticket service, which sometimes drops the connection
+          # (NSURLErrorDomain -1005 and similar). Retry those; anything else is a real failure.
+          is_network_error() { grep -qE 'NSURLErrorDomain|network connection was lost|timed out|offline|could not connect|Could not connect' "$1"; }
+          run_stapler() {  # run_stapler <action>: up to 3 tries, 20s apart; returns 0 ok, 1 real error, 2 still network errors
+            local log="$RUNNER_TEMP/stapler-$1.log"
+            for try in 1 2 3; do
+              if xcrun stapler "$1" "$DMG" > "$log" 2>&1; then cat "$log"; return 0; fi
+              cat "$log"
+              is_network_error "$log" || return 1
+              if [ "$try" -lt 3 ]; then echo "stapler $1: network error (try $try of 3), retrying in 20s"; sleep 20; fi
+            done
+            return 2
+          }
+          set +e
+          run_stapler staple; code=$?
+          set -e
+          if [ "$code" -ne 0 ]; then
+            echo "::error title=Stapling failed::stapler staple $([ "$code" = 2 ] && echo 'kept hitting network errors' || echo 'failed')."
+            exit 1
+          fi
+          set +e
+          run_stapler validate; code=$?
+          set -e
+          if [ "$code" = 2 ]; then
+            # The ticket is already stapled, and the Verify step's spctl check covers the result.
+            echo "::warning title=Couldn't validate the stapled ticket::stapler validate kept hitting network errors; continuing because staple succeeded and spctl checks the .dmg next."
+          elif [ "$code" -ne 0 ]; then
+            echo "::error title=Stapled ticket is invalid::stapler validate failed."
+            exit 1
+          fi
 
       - name: Verify
         run: |
@@ -206,7 +234,7 @@ jobs:
           fi
           rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/cert.p12" "$RUNNER_TEMP/notary.json"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: macos
           path: out/LetAIExplain-macOS.dmg
@@ -222,14 +250,14 @@ jobs:
       run:
         shell: pwsh
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ needs.prepare.outputs.ref }}  # the code the tag points at
 
       - name: App version
         run: '"APP_VERSION=${{ needs.prepare.outputs.version }}" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8'
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.WINDOWS_PYTHON }}
           architecture: x64
@@ -276,7 +304,7 @@ jobs:
             /fd sha256 /tr http://timestamp.digicert.com /td sha256 out\LetAIExplain-Windows-Setup.exe
           Remove-Item "$env:RUNNER_TEMP\cert.pfx"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: windows
           path: |
@@ -295,7 +323,7 @@ jobs:
       TAG_EXISTS: ${{ needs.prepare.outputs.tag_exists }}
       REF: ${{ needs.prepare.outputs.ref }}
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v7
         with:
           path: files
           merge-multiple: true
