@@ -43,6 +43,28 @@ PREFERRED_PORT = 1455
 CALLBACK_PATH = "/auth/callback"
 USAGE_URL = "https://chatgpt.com/settings/usage"
 
+# Other ways to connect: OpenRouter (OAuth) and your own API key.
+OPENROUTER_API = "https://openrouter.ai/api/v1"
+OPENROUTER_AUTH = "https://openrouter.ai/auth"
+OPENROUTER_CALLBACK = "/auth/openrouter/callback"
+OPENROUTER_FREE = "openrouter/free"
+APP_URL = "https://github.com/viyaleta/let-ai-explain"  # sent to OpenRouter as HTTP-Referer
+ANTHROPIC_API = "https://api.anthropic.com/v1"
+ANTHROPIC_VERSION = "2023-06-01"
+GEMINI_API = "https://generativelanguage.googleapis.com/v1beta"
+PROVIDERS = {
+    "chatgpt": {"name": "ChatGPT", "usage_url": USAGE_URL},
+    "openrouter": {"name": "OpenRouter", "usage_url": "https://openrouter.ai/settings/credits"},
+    "openai": {"name": "OpenAI", "usage_url": "https://platform.openai.com/usage"},
+    "anthropic": {"name": "Anthropic", "usage_url": "https://console.anthropic.com/settings/usage"},
+    "gemini": {"name": "Google Gemini", "usage_url": "https://aistudio.google.com/usage"},
+}
+KEY_PROVIDERS = ("openai", "anthropic", "gemini")  # connected with a pasted API key
+API_KEY_SHAPE = re.compile(r"[\x21-\x7e]{8,512}")  # printable, no spaces: safe in a header
+# ChatGPT sign-in fields kept at the top level of credentials.json (as before other providers existed).
+CHATGPT_FIELDS = {"client_id", "issuer", "subject", "email", "ext_agent_host_id", "id_token",
+                  "access_token", "refresh_token", "expires_at", "scopes", "saved_at"}
+
 ROOT = Path(__file__).resolve().parent
 CONFIG_ENV = os.environ.get("LET_AI_EXPLAIN_HOME") or os.environ.get("EXPLAINIT_HOME")  # old name still honored
 CONFIG_DIR = Path(CONFIG_ENV or Path.home() / ".config" / "let-ai-explain")
@@ -232,6 +254,354 @@ def access_token(force_refresh=False):
         cred["saved_at"] = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
         save_cred(cred)
         return cred["access_token"]
+
+
+# ---------------------------------------------------------------- connections
+def active_provider(cred):
+    """Which connection is in use. Files from before other providers existed have no "provider"."""
+    if "provider" not in cred:
+        return "chatgpt" if cred.get("access_token") or cred.get("refresh_token") else None
+    p = cred.get("provider")
+    return p if p in PROVIDERS else None
+
+
+def has_connection(cred, provider):
+    if provider == "chatgpt":
+        return bool(cred.get("access_token") or cred.get("refresh_token"))
+    return bool((cred.get("keys") or {}).get(provider))
+
+
+def set_active(cred, provider):
+    cred["provider"] = provider
+    cred["model"] = (cred.get("models") or {}).get(provider) if provider else None
+
+
+def mask_key(key):
+    return "••••" + key[-4:] if key else ""
+
+
+def api_key(provider):
+    cred = load_cred()
+    key = (cred.get("keys") or {}).get(provider)
+    if not key:
+        raise AppError("not_signed_in", f"Connect {PROVIDERS[provider]['name']} first.", 401)
+    return key
+
+
+def key_headers(provider, key):
+    if provider == "anthropic":
+        return {"x-api-key": key, "anthropic-version": ANTHROPIC_VERSION}
+    if provider == "gemini":
+        return {"x-goog-api-key": key}  # header rather than ?key= so the key never sits in a URL
+    h = {"Authorization": "Bearer " + key}
+    if provider == "openrouter":
+        h.update({"HTTP-Referer": APP_URL, "X-Title": APP_NAME})
+    return h
+
+
+# ---------------------------------------------------------------- provider errors
+def provider_error(provider, status, raw, images=False):
+    """Map an HTTP error from any provider onto the page's error codes."""
+    code, msg = error_from_body(raw, status)
+    code = str(code)
+    blob = (raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw))[:4000].lower()
+    name = PROVIDERS[provider]["name"]
+    if images and status in (400, 404, 415, 422) and re.search(r"image|vision|multimodal|modalit", blob):
+        return AppError("images_unsupported", msg or "This model doesn't accept images.", 400)
+    if status == 402 or re.search(r"insufficient[_ ](credits|quota|balance)|credit balance is too low|out of credits", blob):
+        return AppError("out_of_credits", msg, 402)
+    if status == 401 or re.search(r"api_key_invalid|api key not valid|invalid x-api-key|invalid api key|incorrect api key", blob):
+        return AppError("invalid_key", msg or f"{name} didn't accept the key.", 401)
+    if status == 403:
+        if provider == "openrouter" and re.search(r"moderat|flagged", blob):
+            return AppError("blocked", msg, 403)
+        return AppError("invalid_key", msg or f"{name} didn't allow this key.", 403)
+    if status == 429:
+        return AppError("rate_limited", msg, 429)
+    if status == 404:
+        return AppError("model_not_found", msg, 404)
+    if status in (503, 529) or "overloaded" in blob:
+        return AppError("provider_busy", msg, 503)
+    return AppError(code if code and not code.isdigit() else f"http_{status}", msg, status if status < 500 else 502)
+
+
+STREAM_ERROR_TYPES = {  # error types that arrive inside a stream (Anthropic names; others by status)
+    "overloaded_error": "provider_busy", "rate_limit_error": "rate_limited", "authentication_error": "invalid_key",
+    "permission_error": "invalid_key", "not_found_error": "model_not_found", "billing_error": "out_of_credits",
+}
+STREAM_STATUS = {401: "invalid_key", 403: "invalid_key", 402: "out_of_credits", 404: "model_not_found",
+                 429: "rate_limited", 503: "provider_busy", 529: "provider_busy"}
+
+
+def stream_error(code, message=""):
+    if isinstance(code, int) or (isinstance(code, str) and code.isdigit()):
+        code = STREAM_STATUS.get(int(code), f"http_{code}")
+    code = STREAM_ERROR_TYPES.get(code, code) or "error"
+    if re.search(r"insufficient credits|credit balance", str(message), re.I):
+        code = "out_of_credits"
+    return {"error": code, "message": str(message or "")[:500]}
+
+
+def http_open(provider, url, headers, payload=None, timeout=30, images=False):
+    """Open a request to a provider; HTTP errors become page error codes."""
+    req = urllib.request.Request(url, data=payload, method="POST" if payload is not None else "GET",
+                                 headers={"Accept": "application/json", **headers,
+                                          **({"Content-Type": "application/json"} if payload is not None else {})})
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.HTTPError as e:
+        raise provider_error(provider, e.code, e.read(), images)
+    except urllib.error.URLError as e:
+        raise AppError("upstream_unreachable", f"Couldn't reach {PROVIDERS[provider]['name']}: {e.reason}", 502)
+
+
+def http_json(provider, url, headers, payload=None):
+    with http_open(provider, url, headers, payload) as r:
+        return json.loads(r.read())
+
+
+# ---------------------------------------------------------------- model lists
+OPENAI_SKIP = re.compile(r"audio|realtime|tts|transcribe|image|search|embedding|moderation|instruct|codex|"
+                         r"computer|deep-research|davinci|babbage|gpt-3\.5|-\d{4}-\d{2}-\d{2}$|-\d{4}$")
+GEMINI_SKIP = re.compile(r"embedding|tts|image|live|native-audio|robotics|computer-use|aqa|learnlm|gemma|veo|imagen")
+
+
+def version_of(text, pattern):
+    m = re.search(pattern, text)
+    return tuple(int(x) for x in m.group(1).split(".")) if m else ()
+
+
+def list_models(provider, key):
+    """Models the key can use for chat, newest first where the provider says, plus a sensible default."""
+    h = key_headers(provider, key)
+    if provider == "openai":
+        ids = [m["id"] for m in http_json(provider, API + "/models", h).get("data", []) if m.get("id")]
+        ids = sorted((i for i in ids if re.match(r"(gpt-|o\d|chatgpt-)", i) and not OPENAI_SKIP.search(i)), reverse=True)
+        general = [i for i in ids if re.fullmatch(r"gpt-\d+(\.\d+)?", i)]
+        default = max(general, key=lambda i: version_of(i, r"gpt-(\d+(?:\.\d+)?)"), default=None)
+        return [{"slug": i, "name": i} for i in ids], default or (ids[0] if ids else None), {}
+    if provider == "anthropic":
+        data = http_json(provider, ANTHROPIC_API + "/models?limit=1000", h).get("data", [])
+        data.sort(key=lambda m: m.get("created_at") or "", reverse=True)
+        models = [{"slug": m["id"], "name": m.get("display_name") or m["id"]} for m in data if m.get("id")]
+        sonnet = [m["slug"] for m in models if "sonnet" in m["slug"]]
+        return models, (sonnet or [m["slug"] for m in models] or [None])[0], {}
+    if provider == "gemini":
+        found, token = [], ""
+        for _ in range(5):
+            j = http_json(provider, GEMINI_API + "/models?pageSize=1000" + (f"&pageToken={urllib.parse.quote(token)}" if token else ""), h)
+            found += j.get("models", [])
+            token = j.get("nextPageToken") or ""
+            if not token:
+                break
+        models = []
+        for m in found:
+            slug = (m.get("name") or "").removeprefix("models/")
+            if "generateContent" in (m.get("supportedGenerationMethods") or []) and "gemini" in slug and not GEMINI_SKIP.search(slug):
+                models.append({"slug": slug, "name": m.get("displayName") or slug})
+        models.sort(key=lambda m: (version_of(m["slug"], r"gemini-(\d+(?:\.\d+)?)"), m["slug"]), reverse=True)
+        flash = [m["slug"] for m in models if re.fullmatch(r"gemini-\d+(\.\d+)?-flash(-preview.*)?", m["slug"])]
+        # Newest stable Flash first; a preview only when no stable one is listed.
+        flash.sort(key=lambda s: ("preview" not in s, version_of(s, r"gemini-(\d+(?:\.\d+)?)")), reverse=True)
+        return models, (flash or [m["slug"] for m in models] or [None])[0], {}
+    if provider == "openrouter":
+        data = http_json(provider, OPENROUTER_API + "/models", h).get("data", [])
+        models = []
+        for m in data:
+            arch = m.get("architecture") or {}
+            if m.get("id") and "text" in (arch.get("output_modalities") or ["text"]):
+                models.append({"slug": m["id"], "name": m.get("name") or m["id"],
+                               "images": "image" in (arch.get("input_modalities") or [])})
+        models.sort(key=lambda m: m["name"].lower())
+        if not any(m["slug"] == OPENROUTER_FREE for m in models):
+            models.insert(0, {"slug": OPENROUTER_FREE, "name": "Free models (OpenRouter picks)", "images": True})
+        credits = openrouter_credits(h)
+        if credits is not None and credits <= 0:
+            default = OPENROUTER_FREE
+        else:
+            flash = [m["slug"] for m in models if re.fullmatch(r"google/gemini-\d+(\.\d+)?-flash", m["slug"])]
+            default = max(flash, key=lambda s: version_of(s, r"gemini-(\d+(?:\.\d+)?)"), default=OPENROUTER_FREE)
+        return models, default, {"credits": credits}
+    raise AppError("bad_provider", "Unknown provider.")
+
+
+def openrouter_credits(headers):
+    """Remaining OpenRouter credits in USD, or None if they can't be read."""
+    try:
+        d = http_json("openrouter", OPENROUTER_API + "/credits", headers).get("data") or {}
+        return float(d.get("total_credits") or 0) - float(d.get("total_usage") or 0)
+    except (AppError, ValueError, TypeError, OSError):
+        pass
+    try:
+        d = http_json("openrouter", OPENROUTER_API + "/key", headers).get("data") or {}
+    except (AppError, ValueError, OSError):
+        return None
+    if d.get("is_free_tier"):
+        return 0.0
+    rem = d.get("limit_remaining")
+    return float(rem) if isinstance(rem, (int, float)) else None
+
+
+# ---------------------------------------------------------------- stream parsers
+# Each takes the decoded JSON "data:" events of one stream and yields the page's
+# ndjson events: {"delta": text}, then {"done": true} or {"error": code, "message": ...}.
+# A stream that ends without either is reported as "interrupted" by the caller.
+def sse_events(lines):
+    for raw in lines:
+        line = (raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw).strip()
+        if not line.startswith("data:"):
+            continue  # "event:" names, ": keep-alive" comments, blank separators
+        data = line[5:].strip()
+        if not data or data == "[DONE]":
+            continue
+        try:
+            ev = json.loads(data)
+        except ValueError:
+            continue
+        if isinstance(ev, dict):
+            yield ev
+
+
+def parse_openai(events):
+    for ev in events:
+        t = ev.get("type")
+        if t == "response.output_text.delta":
+            yield {"delta": ev.get("delta", "")}
+        elif t == "response.completed":
+            yield {"done": True}
+            return
+        elif t == "response.failed":
+            err = (ev.get("response") or {}).get("error") or {}
+            yield {"error": err.get("code") or "response_failed", "message": err.get("message", "")}
+            return
+        elif t == "response.incomplete":
+            det = (ev.get("response") or {}).get("incomplete_details") or {}
+            yield {"error": "incomplete", "message": det.get("reason", "")}
+            return
+        elif t == "error":
+            err = ev.get("error") if isinstance(ev.get("error"), dict) else ev
+            yield {"error": err.get("code") or "error", "message": err.get("message", "")}
+            return
+
+
+def finish(reason, ok, cut):
+    if reason is None:
+        return []
+    if reason in cut:
+        return [{"error": "incomplete", "message": "max_output_tokens"}]
+    if reason in ok:
+        return [{"done": True}]
+    return [{"error": "blocked", "message": str(reason)}]
+
+
+def parse_openrouter(events):
+    reason = None
+    for ev in events:
+        if isinstance(ev.get("error"), dict):
+            e = ev["error"]
+            yield stream_error(e.get("code"), e.get("message", ""))
+            return
+        choices = ev.get("choices") or []
+        if not choices:
+            continue
+        ch = choices[0]
+        text = (ch.get("delta") or {}).get("content")
+        if isinstance(text, str) and text:
+            yield {"delta": text}
+        if ch.get("finish_reason") == "error":
+            yield stream_error((ch.get("error") or {}).get("code") or "error", (ch.get("error") or {}).get("message", ""))
+            return
+        reason = ch.get("finish_reason") or reason
+    yield from finish(reason, ok=("stop", "tool_calls", "function_call"), cut=("length",))
+
+
+def parse_anthropic(events):
+    stop = None
+    for ev in events:
+        t = ev.get("type")
+        if t == "content_block_delta":
+            d = ev.get("delta") or {}
+            if d.get("type") == "text_delta" and d.get("text"):
+                yield {"delta": d["text"]}
+        elif t == "message_delta":
+            stop = (ev.get("delta") or {}).get("stop_reason") or stop
+        elif t == "message_stop":
+            yield from finish(stop or "end_turn", ok=("end_turn", "stop_sequence", "pause_turn"),
+                              cut=("max_tokens", "model_context_window_exceeded"))
+            return
+        elif t == "error":
+            e = ev.get("error") or {}
+            yield stream_error(e.get("type") or "error", e.get("message", ""))
+            return
+
+
+def parse_gemini(events):
+    reason = None
+    for ev in events:
+        if isinstance(ev.get("error"), dict):
+            e = ev["error"]
+            yield stream_error(e.get("code") or e.get("status"), e.get("message", ""))
+            return
+        block = (ev.get("promptFeedback") or {}).get("blockReason")
+        if block:
+            yield {"error": "blocked", "message": block}
+            return
+        cands = ev.get("candidates") or []
+        if not cands:
+            continue
+        for part in (cands[0].get("content") or {}).get("parts") or []:
+            if part.get("thought"):
+                continue  # thinking summaries aren't part of the answer
+            if isinstance(part.get("text"), str) and part["text"]:
+                yield {"delta": part["text"]}
+        reason = cands[0].get("finishReason") or reason
+    yield from finish(reason, ok=("STOP", "FINISH_REASON_UNSPECIFIED"), cut=("MAX_TOKENS",))
+
+
+PARSERS = {"chatgpt": parse_openai, "openai": parse_openai, "openrouter": parse_openrouter,
+           "anthropic": parse_anthropic, "gemini": parse_gemini}
+
+
+# ---------------------------------------------------------------- request bodies
+def split_data_url(u):
+    head, data = u.split(",", 1)
+    return head[5:].split(";")[0], data  # "image/png", base64 payload
+
+
+def build_request(provider, model, instructions, text, images, max_tokens=16000):
+    """URL path pieces and JSON body for one streamed answer in the provider's own format."""
+    if provider in ("chatgpt", "openai"):
+        content = text
+        if images:
+            content = [{"type": "input_text", "text": text}] + [
+                {"type": "input_image", "image_url": u, "detail": "low"} for u in images]
+        return API + "/responses", {"model": model, "instructions": instructions,
+                                    "input": [{"role": "user", "content": content}],
+                                    "store": False, "stream": True}
+    if provider == "openrouter":
+        content = text
+        if images:
+            content = [{"type": "text", "text": text}] + [
+                {"type": "image_url", "image_url": {"url": u, "detail": "low"}} for u in images]
+        messages = ([{"role": "system", "content": instructions}] if instructions else []) + [
+            {"role": "user", "content": content}]
+        return OPENROUTER_API + "/chat/completions", {"model": model, "messages": messages, "stream": True}
+    if provider == "anthropic":
+        content = [{"type": "image", "source": {"type": "base64", "media_type": mt, "data": d}}
+                   for mt, d in map(split_data_url, images)] + [{"type": "text", "text": text}]
+        body = {"model": model, "max_tokens": max_tokens, "stream": True,
+                "messages": [{"role": "user", "content": content}]}
+        if instructions:
+            body["system"] = instructions
+        return ANTHROPIC_API + "/messages", body
+    if provider == "gemini":
+        parts = [{"text": text}] + [{"inline_data": {"mime_type": mt, "data": d}}
+                                    for mt, d in map(split_data_url, images)]
+        body = {"contents": [{"role": "user", "parts": parts}]}
+        if instructions:
+            body["systemInstruction"] = {"parts": [{"text": instructions}]}
+        return f"{GEMINI_API}/models/{urllib.parse.quote(model, safe='')}:streamGenerateContent?alt=sse", body
+    raise AppError("bad_provider", "Unknown provider.")
 
 
 # ---------------------------------------------------------------- page reader
@@ -465,6 +835,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.auth_start(urllib.parse.parse_qs(url.query))
             if url.path == CALLBACK_PATH:
                 return self.auth_callback(urllib.parse.parse_qs(url.query))
+            if url.path == "/auth/openrouter/start":
+                return self.openrouter_start()
+            if url.path == OPENROUTER_CALLBACK:
+                return self.openrouter_callback(urllib.parse.parse_qs(url.query))
             if not self.api_ok():
                 return self.send_json(403, {"error": "forbidden"})
             if url.path == "/api/session":
@@ -490,10 +864,14 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if path == "/api/respond":
                 return self.api_respond(self.read_body())
-            if path == "/api/signout":
-                with LOCK:
-                    clear_tokens(load_cred())
-                return self.send_json(200, {"ok": True})
+            if path in ("/api/disconnect", "/api/signout"):
+                return self.api_disconnect()
+            if path == "/api/connect/key":
+                return self.api_connect_key(self.read_body())
+            if path == "/api/connect/use":
+                return self.api_connect_use(self.read_body())
+            if path == "/api/model":
+                return self.api_model(self.read_body())
             self.send_json(404, {"error": "not_found"})
         except AppError as e:
             self.send_json(e.status, {"error": e.code, "message": e.message})
@@ -559,7 +937,8 @@ class Handler(BaseHTTPRequestHandler):
                         raise AppError("registration_incomplete", "ChatGPT didn't return an app registration.")
                     client_id = cb_client
                     # Keep the issued client ID even if the code exchange fails below.
-                    cred = {"client_id": client_id}
+                    cred = {k: v for k, v in cred.items() if k not in CHATGPT_FIELDS}  # keep other connections
+                    cred["client_id"] = client_id
                     save_cred(cred)
                 else:
                     client_id = pending["client_id"]
@@ -583,6 +962,7 @@ class Handler(BaseHTTPRequestHandler):
                     "expires_at": time.time() + int(data.get("expires_in", 3600)), "scopes": scopes,
                     "saved_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
                 })
+                set_active(cred, "chatgpt")
                 save_cred(cred)
             self.redirect("/?signin=ok" if PLAN_SCOPE in scopes else "/?signin=noplan")
         except AppError as e:
@@ -591,15 +971,84 @@ class Handler(BaseHTTPRequestHandler):
             print(f"Sign-in failed: {type(e).__name__}: {e}")
             self.redirect("/?signin=error&reason=" + urllib.parse.quote(type(e).__name__))
 
+    # ---- OpenRouter sign-in (OAuth PKCE; the key it returns is stored here, never sent to the page)
+    def openrouter_start(self):
+        verifier = b64url(secrets.token_bytes(48))
+        state = secrets.token_urlsafe(24)
+        now = time.time()
+        for s in [s for s, p in PENDING.items() if now - p["created"] > 900]:
+            PENDING.pop(s, None)
+        PENDING[state] = {"kind": "openrouter", "verifier": verifier, "created": now}
+        # OpenRouter accepts http://localhost on any port; the request is sent on to 127.0.0.1 by do_GET.
+        params = {"callback_url": f"http://localhost:{self.server.server_port}{OPENROUTER_CALLBACK}",
+                  "code_challenge": b64url(hashlib.sha256(verifier.encode()).digest()),
+                  "code_challenge_method": "S256", "state": state, "key_label": APP_NAME}
+        self.redirect(OPENROUTER_AUTH + "?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote))
+
+    def openrouter_callback(self, q):
+        get = lambda k: (q.get(k) or [""])[0]
+        pending = PENDING.pop(get("state"), None) if get("state") else None
+        if pending is None and not get("state"):
+            # No state echoed back: use the newest OpenRouter attempt. PKCE still binds the code to our verifier.
+            mine = sorted((p for p in PENDING.items() if p[1].get("kind") == "openrouter"), key=lambda p: p[1]["created"])
+            if mine:
+                pending = PENDING.pop(mine[-1][0])
+        if not pending or pending.get("kind") != "openrouter" or time.time() - pending["created"] > 900:
+            return self.redirect("/?signin=error&reason=expired")
+        if get("error") or not get("code"):
+            return self.redirect("/?signin=denied")
+        try:
+            data = http_json("openrouter", OPENROUTER_API + "/auth/keys", {}, json.dumps({
+                "code": get("code"), "code_verifier": pending["verifier"], "code_challenge_method": "S256"}).encode())
+            key = data.get("key")
+            if not isinstance(key, str) or not API_KEY_SHAPE.fullmatch(key):
+                raise AppError("no_key", "OpenRouter didn't return a key.")
+            with LOCK:
+                cred = load_cred()
+                cred.setdefault("keys", {})["openrouter"] = key
+                set_active(cred, "openrouter")
+                save_cred(cred)
+            self.redirect("/?signin=ok")
+        except AppError as e:
+            self.redirect("/?signin=error&reason=" + urllib.parse.quote(e.code))
+        except Exception as e:
+            print(f"OpenRouter sign-in failed: {type(e).__name__}: {e}")
+            self.redirect("/?signin=error&reason=" + urllib.parse.quote(type(e).__name__))
+
     # ---- API
     def api_session(self):
         cred = load_cred()
-        connected = bool(cred.get("access_token") or cred.get("refresh_token"))
-        self.send_json(200, {"connected": connected, "email": cred.get("email") if connected else None,
-                             "sharing": connected and PLAN_SCOPE in cred.get("scopes", []),
-                             "usage_url": USAGE_URL})
+        provider = active_provider(cred)
+        connected = bool(provider) and has_connection(cred, provider)
+        keys = cred.get("keys") or {}
+        sharing = PLAN_SCOPE in cred.get("scopes", []) if provider == "chatgpt" else connected
+        saved = [{"provider": p, "name": PROVIDERS[p]["name"],
+                  "key_hint": mask_key(keys.get(p)) if p in KEY_PROVIDERS else "",
+                  "email": cred.get("email") if p == "chatgpt" else None}
+                 for p in PROVIDERS if p != provider and has_connection(cred, p)]
+        self.send_json(200, {
+            "connected": connected, "provider": provider if connected else None,
+            "name": PROVIDERS[provider]["name"] if connected else None,
+            "model": (cred.get("models") or {}).get(provider) if connected else None,
+            "key_hint": mask_key(keys.get(provider)) if connected and provider in KEY_PROVIDERS else "",
+            "email": cred.get("email") if connected and provider == "chatgpt" else None,
+            "status": "signed_out" if not connected else "ready" if sharing else "noplan",
+            "sharing": connected and sharing,
+            "usage_url": PROVIDERS[provider]["usage_url"] if connected else USAGE_URL,
+            "saved": saved})
+
+    def current(self):
+        cred = load_cred()
+        provider = active_provider(cred)
+        if not provider or not has_connection(cred, provider):
+            raise AppError("not_signed_in", "Connect an AI first.", 401)
+        return provider
 
     def api_models(self):
+        provider = self.current()
+        if provider != "chatgpt":
+            models, default, extra = list_models(provider, api_key(provider))
+            return self.send_json(200, {"models": models, "default": default, **extra})
         for attempt in (0, 1):
             token = access_token(force_refresh=attempt == 1)
             req = urllib.request.Request(API + "/models", headers={"Authorization": "Bearer " + token})
@@ -617,47 +1066,112 @@ class Handler(BaseHTTPRequestHandler):
                       for m in j["models"] if m.get("visibility", "list") == "list" and m.get("slug")]
         else:
             models = [{"slug": m["id"], "name": m["id"]} for m in j.get("data", []) if m.get("id")]
-        self.send_json(200, {"models": models})
+        self.send_json(200, {"models": models, "default": None})
+
+    def api_connect_key(self, body):
+        provider, key = body.get("provider"), str(body.get("key") or "").strip()
+        if provider not in KEY_PROVIDERS:
+            raise AppError("bad_provider", "Choose OpenAI, Anthropic or Google Gemini.")
+        if not API_KEY_SHAPE.fullmatch(key):
+            raise AppError("invalid_key", "That doesn't look like an API key.", 400)
+        try:
+            models, default, _ = list_models(provider, key)  # the key works if it can list models
+        except AppError as e:
+            if e.code in ("invalid_key", "model_not_found") or e.status in (400, 401, 403):
+                raise AppError("invalid_key", f"{PROVIDERS[provider]['name']} didn't accept that key.", 400)
+            raise
+        if not models:
+            raise AppError("no_models", f"That key works, but it has no chat models available.", 400)
+        with LOCK:
+            cred = load_cred()
+            cred.setdefault("keys", {})[provider] = key
+            set_active(cred, provider)
+            save_cred(cred)
+        self.send_json(200, {"ok": True, "provider": provider, "key_hint": mask_key(key)})
+
+    def api_connect_use(self, body):
+        provider = body.get("provider")
+        with LOCK:
+            cred = load_cred()
+            if provider not in PROVIDERS or not has_connection(cred, provider):
+                raise AppError("not_signed_in", "That connection isn't saved anymore.", 400)
+            set_active(cred, provider)
+            save_cred(cred)
+        self.send_json(200, {"ok": True})
+
+    def api_disconnect(self):
+        """Forget the active connection's credentials; other saved connections stay."""
+        with LOCK:
+            cred = load_cred()
+            provider = active_provider(cred)
+            if provider == "chatgpt":
+                clear_tokens(cred)  # keeps the ChatGPT registration for the next sign-in
+            elif provider:
+                (cred.get("keys") or {}).pop(provider, None)
+            set_active(cred, None)
+            save_cred(cred)
+        self.send_json(200, {"ok": True})
+
+    def api_model(self, body):
+        model = str(body.get("model") or "").strip()
+        if not model or len(model) > 200:
+            raise AppError("no_model", "Choose a model first.")
+        with LOCK:
+            cred = load_cred()
+            provider = active_provider(cred)
+            if not provider:
+                raise AppError("not_signed_in", "Connect an AI first.", 401)
+            cred.setdefault("models", {})[provider] = model
+            cred["model"] = model
+            save_cred(cred)
+        self.send_json(200, {"ok": True})
 
     def emit(self, obj):
         self.wfile.write((json.dumps(obj) + "\n").encode())
         self.wfile.flush()
 
+    def open_answer(self, provider, model, instructions, text, images):
+        """Start the provider's stream; returns the open response."""
+        if provider == "chatgpt":
+            url, body = build_request(provider, model, instructions, text, images)
+            payload = json.dumps(body).encode()
+            for attempt in (0, 1):
+                token = access_token(force_refresh=attempt == 1)
+                req = urllib.request.Request(url, data=payload, method="POST", headers={
+                    "Authorization": "Bearer " + token, "Content-Type": "application/json",
+                    "Accept": "text/event-stream"})
+                try:
+                    return urllib.request.urlopen(req, timeout=300)
+                except urllib.error.HTTPError as e:
+                    raw = e.read()
+                    if e.code == 401 and attempt == 0:
+                        continue
+                    code, msg = error_from_body(raw, e.code)
+                    raise AppError(code, msg, e.code if e.code < 500 else 502)
+                except urllib.error.URLError as e:
+                    raise AppError("upstream_unreachable", f"Couldn't reach OpenAI: {e.reason}", 502)
+        headers = {**key_headers(provider, api_key(provider)), "Accept": "text/event-stream"}
+        # Some older Claude models allow fewer output tokens; step down if the first size is refused.
+        for max_tokens in (16000, 8192, 4096):
+            url, body = build_request(provider, model, instructions, text, images, max_tokens)
+            try:
+                return http_open(provider, url, headers, json.dumps(body).encode(), timeout=300, images=bool(images))
+            except AppError as e:
+                if not (provider == "anthropic" and e.status == 400 and "max_tokens" in e.message and max_tokens > 4096):
+                    raise
+
     def api_respond(self, body):
+        provider = self.current()
         model = (body.get("model") or "").strip()
         if not model:
             raise AppError("no_model", "Choose a model first.")
-        content = body.get("input") or ""
-        # Optional small images (the image-search check): inline data URLs only, so OpenAI never fetches a URL.
+        text = str(body.get("input") or "")
+        # Optional small images (the image-search check): inline data URLs only, so no provider fetches a URL.
         images = body.get("images") or []
-        if images:
-            if not isinstance(images, list) or len(images) > 6 or not all(
-                    isinstance(u, str) and len(u) < 400_000 and IMAGE_DATA_URL.match(u) for u in images):
-                raise AppError("bad_images", "Images must be up to 6 small PNG, JPEG, GIF or WebP data URLs.", 400)
-            content = [{"type": "input_text", "text": str(content)}] + [
-                {"type": "input_image", "image_url": u, "detail": "low"} for u in images]
-        payload = json.dumps({
-            "model": model, "instructions": body.get("instructions") or "",
-            "input": [{"role": "user", "content": content}],
-            "store": False, "stream": True,
-        }).encode()
-        upstream = None
-        for attempt in (0, 1):
-            token = access_token(force_refresh=attempt == 1)
-            req = urllib.request.Request(API + "/responses", data=payload, method="POST", headers={
-                "Authorization": "Bearer " + token, "Content-Type": "application/json",
-                "Accept": "text/event-stream"})
-            try:
-                upstream = urllib.request.urlopen(req, timeout=300)
-                break
-            except urllib.error.HTTPError as e:
-                raw = e.read()
-                if e.code == 401 and attempt == 0:
-                    continue
-                code, msg = error_from_body(raw, e.code)
-                raise AppError(code, msg, e.code if e.code < 500 else 502)
-            except urllib.error.URLError as e:
-                raise AppError("upstream_unreachable", f"Couldn't reach OpenAI: {e.reason}", 502)
+        if images and (not isinstance(images, list) or len(images) > 6 or not all(
+                isinstance(u, str) and len(u) < 400_000 and IMAGE_DATA_URL.match(u) for u in images)):
+            raise AppError("bad_images", "Images must be up to 6 small PNG, JPEG, GIF or WebP data URLs.", 400)
+        upstream = self.open_answer(provider, model, body.get("instructions") or "", text, images)
 
         self.send_response(200)
         self.send_header("Content-Type", "application/x-ndjson")
@@ -665,37 +1179,15 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         if images:
             self.emit({"images": len(images)})  # lets the page know the images were sent, not dropped
-        completed = False
+        ended = False
         try:
             with upstream:
-                for raw in upstream:
-                    line = raw.decode("utf-8", "replace").strip()
-                    if not line.startswith("data:"):
-                        continue
-                    data = line[5:].strip()
-                    if not data or data == "[DONE]":
-                        continue
-                    try:
-                        ev = json.loads(data)
-                    except ValueError:
-                        continue
-                    t = ev.get("type")
-                    if t == "response.output_text.delta":
-                        self.emit({"delta": ev.get("delta", "")})
-                    elif t == "response.completed":
-                        completed = True
-                        self.emit({"done": True})
+                for ev in PARSERS[provider](sse_events(upstream)):
+                    self.emit(ev)
+                    if "done" in ev or "error" in ev:
+                        ended = True
                         break
-                    elif t == "response.failed":
-                        err = (ev.get("response") or {}).get("error") or {}
-                        return self.emit({"error": err.get("code") or "response_failed", "message": err.get("message", "")})
-                    elif t == "response.incomplete":
-                        det = (ev.get("response") or {}).get("incomplete_details") or {}
-                        return self.emit({"error": "incomplete", "message": det.get("reason", "")})
-                    elif t == "error":
-                        err = ev.get("error") if isinstance(ev.get("error"), dict) else ev
-                        return self.emit({"error": err.get("code") or "error", "message": err.get("message", "")})
-            if not completed:
+            if not ended:
                 self.emit({"error": "interrupted"})
         except (BrokenPipeError, ConnectionResetError):
             pass  # the page stopped listening (Stop button or reload)
