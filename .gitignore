@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+# Desktop app build output
+build/
+dist/
+out/
+build-env/
+.DS_Store

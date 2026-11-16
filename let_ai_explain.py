@@ -2,7 +2,7 @@
 """Let AI Explain: a local explainer that runs on your ChatGPT plan.
 
 Run:  python3 let_ai_explain.py
-Then use the page it opens at http://127.0.0.1:1455/
+Then use the page it opens at http://let-ai-explain.localhost:1455/ (or http://127.0.0.1:1455/)
 
 Uses only the Python standard library. If PyJWT with crypto support is
 installed (pip install "pyjwt[crypto]"), the ID token signature is also checked.
@@ -39,7 +39,15 @@ IMAGE_DATA_URL = re.compile(r"data:image/(png|jpeg|gif|webp);base64,[A-Za-z0-9+/
 SCOPES = "openid profile email offline_access resource.invoke chatgpt.tokens.use.direct"
 PLAN_SCOPE = "chatgpt.tokens.use.direct"
 HOST = "127.0.0.1"
+FRIENDLY_HOST = "let-ai-explain.localhost"  # nicer address for the browser; *.localhost is this computer
 PREFERRED_PORT = 1455
+# Files the page needs besides index.html (the "Install app" manifest, service worker and icons).
+STATIC = {"/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
+          "/sw.js": ("sw.js", "text/javascript; charset=utf-8"),
+          "/icons/icon-192.png": ("icons/icon-192.png", "image/png"),
+          "/icons/icon-512.png": ("icons/icon-512.png", "image/png"),
+          "/icons/icon-maskable-512.png": ("icons/icon-maskable-512.png", "image/png")}
+PIXEL = bytes.fromhex("47494638396101000100800000000000ffffff21f90401000000002c00000000010001000002024401003b")
 CALLBACK_PATH = "/auth/callback"
 USAGE_URL = "https://chatgpt.com/settings/usage"
 
@@ -65,14 +73,27 @@ API_KEY_SHAPE = re.compile(r"[\x21-\x7e]{8,512}")  # printable, no spaces: safe 
 CHATGPT_FIELDS = {"client_id", "issuer", "subject", "email", "ext_agent_host_id", "id_token",
                   "access_token", "refresh_token", "expires_at", "scopes", "saved_at"}
 
-ROOT = Path(__file__).resolve().parent
+# Where index.html lives: next to this file, or inside the bundle of the desktop app.
+ROOT = Path(getattr(sys, "_MEIPASS", None) or Path(__file__).resolve().parent)
 CONFIG_ENV = os.environ.get("LET_AI_EXPLAIN_HOME") or os.environ.get("EXPLAINIT_HOME")  # old name still honored
-CONFIG_DIR = Path(CONFIG_ENV or Path.home() / ".config" / "let-ai-explain")
+UNIX_CONFIG_DIR = Path.home() / ".config" / "let-ai-explain"
+if sys.platform == "win32":  # Windows keeps app data in %APPDATA%
+    DEFAULT_CONFIG_DIR = Path(os.environ.get("APPDATA") or Path.home() / "AppData" / "Roaming") / "let-ai-explain"
+else:
+    DEFAULT_CONFIG_DIR = UNIX_CONFIG_DIR
+CONFIG_DIR = Path(CONFIG_ENV or DEFAULT_CONFIG_DIR)
 LEGACY_CONFIG_DIR = Path.home() / ".config" / "explainit"  # folder used before the rename
 HOST_FILE = CONFIG_DIR / "host.json"
 CRED_FILE = CONFIG_DIR / "credentials.json"
+PREFS_FILE = CONFIG_DIR / "prefs.json"
+HISTORY_DIR = CONFIG_DIR / "history"
+HISTORY_MAX, HISTORY_DAYS = 100, 30  # keep the newest 100 sessions, none older than 30 days
+SESSION_ID = re.compile(r"[A-Za-z0-9_-]{1,64}")
+PREFS = {"theme": ("light", "dark", None), "level": ("simple", "standard", "expert")}
 
 PENDING = {}            # state -> pending authorization attempt
+DESKTOP = None          # set by desktop.py: opens links, saves and prints for the app window
+AUTH_RESULT = {"seq": 0, "signin": None, "reason": None}  # last sign-in outcome, polled by the app window
 LOCK = threading.Lock()  # guards credential reads/writes and refresh
 
 
@@ -85,29 +106,41 @@ def read_json(path):
 
 
 def write_private(path, data):
-    """Atomic write with owner-only permissions."""
-    CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    try:
-        os.chmod(CONFIG_DIR, 0o700)
-    except OSError:
-        pass
-    tmp = path.with_name(path.name + ".tmp")
+    """Atomic write with owner-only permissions (folders 700, files 600)."""
+    for folder in [CONFIG_DIR] + ([path.parent] if path.parent != CONFIG_DIR else []):
+        folder.mkdir(parents=True, exist_ok=True)
+        try:
+            os.chmod(folder, 0o700)
+        except OSError:
+            pass
+    tmp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
     fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as f:
-        json.dump(data, f, indent=2)
-    os.replace(tmp, path)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2 if path.parent == CONFIG_DIR else None, ensure_ascii=False)
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 def migrate_config():
-    """Move the pre-rename config folder over once, so existing sign-ins keep working."""
-    if CONFIG_ENV or CONFIG_DIR.exists() or not LEGACY_CONFIG_DIR.is_dir():
+    """Move an older settings folder over once, so existing sign-ins keep working."""
+    if CONFIG_ENV or CONFIG_DIR.exists():
         return
-    try:
-        CONFIG_DIR.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(str(LEGACY_CONFIG_DIR), str(CONFIG_DIR))
-        print(f"Moved your settings from {LEGACY_CONFIG_DIR} to {CONFIG_DIR}.")
-    except OSError as e:
-        print(f"Note: couldn't move {LEGACY_CONFIG_DIR} to {CONFIG_DIR} ({e}). You may need to sign in again.")
+    for old in (UNIX_CONFIG_DIR, LEGACY_CONFIG_DIR):  # ~/.config/let-ai-explain matters on Windows only
+        if old == CONFIG_DIR or not old.is_dir():
+            continue
+        try:
+            CONFIG_DIR.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(old), str(CONFIG_DIR))
+            print(f"Moved your settings from {old} to {CONFIG_DIR}.")
+        except OSError as e:
+            print(f"Note: couldn't move {old} to {CONFIG_DIR} ({e}). You may need to sign in again.")
+        return
 
 
 def host_id():
@@ -124,6 +157,49 @@ def load_cred():
 
 def save_cred(cred):
     write_private(CRED_FILE, cred)
+
+
+# ---------------------------------------------------------------- history and preferences
+HISTORY_LOCK = threading.Lock()
+
+
+def history_path(sid):
+    if not isinstance(sid, str) or not SESSION_ID.fullmatch(sid):
+        raise AppError("bad_id", "That history entry doesn't exist.", 404)
+    return HISTORY_DIR / f"{sid}.json"
+
+
+def history_meta(s):
+    return {"id": s.get("id"), "title": str(s.get("title") or "")[:300], "level": s.get("level"),
+            "ts": s.get("ts") if isinstance(s.get("ts"), (int, float)) else 0}
+
+
+def history_list(keep=None):
+    """Metadata of saved sessions, newest first, after removing old and extra ones (never `keep`)."""
+    with HISTORY_LOCK:
+        metas = []
+        for f in HISTORY_DIR.glob("*.json") if HISTORY_DIR.is_dir() else []:
+            s = read_json(f)
+            if s is None:
+                continue  # unreadable right now: leave it alone
+            if isinstance(s, dict) and s.get("id") == f.stem:
+                metas.append(history_meta(s))
+            else:
+                f.unlink(missing_ok=True)  # not a session of ours
+        metas.sort(key=lambda m: m["ts"], reverse=True)
+        cutoff = (time.time() - HISTORY_DAYS * 86400) * 1000  # the page's timestamps are in ms
+        kept = []
+        for m in metas:
+            if m["id"] != keep and (m["ts"] < cutoff or len(kept) >= HISTORY_MAX):
+                (HISTORY_DIR / f"{m['id']}.json").unlink(missing_ok=True)
+            else:
+                kept.append(m)
+        return kept
+
+
+def load_prefs():
+    p = read_json(PREFS_FILE)
+    return {k: v for k, v in (p if isinstance(p, dict) else {}).items() if k in PREFS and v in PREFS[k]}
 
 
 # ---------------------------------------------------------------- helpers
@@ -803,18 +879,23 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
 
     def host_ok(self):
-        return self.headers.get("Host") == f"{HOST}:{self.server.server_port}"
+        port = self.server.server_port
+        return self.headers.get("Host") in (f"{HOST}:{port}", f"{FRIENDLY_HOST}:{port}")
+
+    @property
+    def friendly(self):
+        return self.headers.get("Host") == f"{FRIENDLY_HOST}:{self.server.server_port}"
 
     def api_ok(self):
         """Block other websites from driving this server (CSRF / DNS rebinding)."""
         if not self.host_ok() or self.headers.get("X-Let-AI-Explain") != "1":
             return False
         origin = self.headers.get("Origin")
-        return origin in (None, self.origin)
+        return origin in (None, "http://" + self.headers.get("Host"))
 
-    def read_body(self):
+    def read_body(self, limit=2_000_000):
         n = int(self.headers.get("Content-Length") or 0)
-        if n > 2_000_000:
+        if n > limit:
             raise AppError("too_large", "Request too large.", 413)
         try:
             return json.loads(self.rfile.read(n) or b"{}")
@@ -831,10 +912,18 @@ class Handler(BaseHTTPRequestHandler):
         try:
             if url.path in ("/", "/index.html"):
                 return self.serve_index()
+            if url.path in STATIC:
+                return self.serve_static(*STATIC[url.path])
+            if url.path == "/hello.gif":  # lets the page check that this browser reaches the friendly address
+                if DESKTOP is not None:
+                    return self.send_json(404, {"error": "not_found"})  # the app window stays on 127.0.0.1
+                return self.serve_bytes(PIXEL, "image/gif")
             if url.path == "/auth/start":
                 return self.auth_start(urllib.parse.parse_qs(url.query))
             if url.path == CALLBACK_PATH:
                 return self.auth_callback(urllib.parse.parse_qs(url.query))
+            if url.path == "/auth/done":
+                return self.auth_done(urllib.parse.parse_qs(url.query))
             if url.path == "/auth/openrouter/start":
                 return self.openrouter_start()
             if url.path == OPENROUTER_CALLBACK:
@@ -843,6 +932,15 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(403, {"error": "forbidden"})
             if url.path == "/api/session":
                 return self.api_session()
+            if url.path == "/api/history":
+                return self.send_json(200, {"sessions": history_list()})
+            if url.path.startswith("/api/history/"):
+                s = read_json(history_path(url.path[len("/api/history/"):]))
+                if not isinstance(s, dict):
+                    raise AppError("not_found", "That history entry doesn't exist.", 404)
+                return self.send_json(200, s)
+            if url.path == "/api/prefs":
+                return self.send_json(200, load_prefs())
             if url.path == "/api/models":
                 return self.api_models()
             if url.path == "/api/fetch":
@@ -872,17 +970,114 @@ class Handler(BaseHTTPRequestHandler):
                 return self.api_connect_use(self.read_body())
             if path == "/api/model":
                 return self.api_model(self.read_body())
+            if path.startswith("/api/desktop/") and DESKTOP is not None:
+                return self.api_desktop(path.rsplit("/", 1)[1], self.read_body())
             self.send_json(404, {"error": "not_found"})
         except AppError as e:
             self.send_json(e.status, {"error": e.code, "message": e.message})
         except Exception as e:
             self.send_json(502, {"error": "server_error", "message": f"{type(e).__name__}: {e}"})
 
+    def do_PUT(self):
+        path = urllib.parse.urlparse(self.path).path
+        if not self.api_ok():
+            return self.send_json(403, {"error": "forbidden"})
+        try:
+            if path.startswith("/api/history/"):
+                sid = path[len("/api/history/"):]
+                target = history_path(sid)
+                body = self.read_body(limit=20_000_000)  # long explanations with charts can be big
+                if not isinstance(body, dict) or body.get("id") != sid:
+                    raise AppError("bad_session", "The session doesn't match its id.", 400)
+                with HISTORY_LOCK:
+                    write_private(target, body)
+                return self.send_json(200, {"sessions": history_list(keep=sid)})
+            if path == "/api/prefs":
+                body = self.read_body()
+                with LOCK:
+                    prefs = load_prefs()
+                    for k, v in (body.items() if isinstance(body, dict) else []):
+                        if k in PREFS and v in PREFS[k]:
+                            prefs[k] = v
+                    write_private(PREFS_FILE, prefs)
+                return self.send_json(200, prefs)
+            self.send_json(404, {"error": "not_found"})
+        except AppError as e:
+            self.send_json(e.status, {"error": e.code, "message": e.message})
+        except Exception as e:
+            self.send_json(500, {"error": "server_error", "message": f"{type(e).__name__}: {e}"})
+
+    def do_DELETE(self):
+        path = urllib.parse.urlparse(self.path).path
+        if not self.api_ok():
+            return self.send_json(403, {"error": "forbidden"})
+        try:
+            if path == "/api/history":
+                with HISTORY_LOCK:
+                    for f in HISTORY_DIR.glob("*.json") if HISTORY_DIR.is_dir() else []:
+                        f.unlink(missing_ok=True)
+                return self.send_json(200, {"sessions": []})
+            if path.startswith("/api/history/"):
+                with HISTORY_LOCK:
+                    history_path(path[len("/api/history/"):]).unlink(missing_ok=True)
+                return self.send_json(200, {"sessions": history_list()})
+            self.send_json(404, {"error": "not_found"})
+        except AppError as e:
+            self.send_json(e.status, {"error": e.code, "message": e.message})
+        except Exception as e:
+            self.send_json(500, {"error": "server_error", "message": f"{type(e).__name__}: {e}"})
+
     def serve_index(self):
         try:
             body = (ROOT / "index.html").read_bytes()
         except OSError:
             return self.send_json(500, {"error": "index.html is missing next to let_ai_explain.py"})
+        self.serve_bytes(body, "text/html; charset=utf-8")
+
+    def serve_static(self, name, ctype):
+        try:
+            body = (ROOT / name).read_bytes()
+        except OSError:
+            return self.send_json(404, {"error": "not_found"})
+        self.serve_bytes(body, ctype, "no-cache")
+
+    def serve_bytes(self, body, ctype, cache="no-store"):
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Cache-Control", cache)
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    # ---- sign-in
+    def auth_finish(self, location, pending=None):
+        """End a sign-in. Callbacks always arrive on 127.0.0.1; the browser goes back to the address
+        the sign-in started from (let-ai-explain.localhost when it used that). In the desktop app the
+        flow ran in the system browser, so that tab gets a short "go back to the app" page and the
+        app window picks the result up from /api/session."""
+        q = dict(urllib.parse.parse_qsl(urllib.parse.urlparse(location).query))
+        with LOCK:
+            AUTH_RESULT.update(seq=AUTH_RESULT["seq"] + 1, signin=q.get("signin"), reason=q.get("reason"))
+        if DESKTOP is None:
+            if (pending or {}).get("friendly"):
+                location = f"http://{FRIENDLY_HOST}:{self.server.server_port}{location}"
+            return self.redirect(location)
+        self.redirect("/auth/done?" + urllib.parse.urlencode({k: v for k, v in q.items() if k in ("signin", "reason")}))
+
+    def auth_done(self, q):
+        signin = (q.get("signin") or [""])[0]
+        title, text = {
+            "ok": ("You're signed in", "Go back to the Let AI Explain window. You can close this tab."),
+            "noplan": ("Plan usage wasn't allowed", "Go back to the Let AI Explain window to allow it or connect another way."),
+            "denied": ("Sign-in was cancelled", "Go back to the Let AI Explain window to try again."),
+        }.get(signin, ("Sign-in didn't finish", "Go back to the Let AI Explain window to try again."))
+        body = f"""<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{title} · Let AI Explain</title><style>
+:root{{color-scheme:light dark}}body{{margin:0;min-height:100vh;display:grid;place-items:center;font:16px/1.5 system-ui,sans-serif;background:#F7F8FA;color:#14171C}}
+@media (prefers-color-scheme:dark){{body{{background:#15181E;color:#E6E9EF}}}}main{{max-width:26rem;padding:2rem 16px;text-align:center}}
+h1{{font-size:1.4rem;margin:0 0 .5rem}}p{{margin:0;opacity:.75}}</style></head>
+<body><main><h1>{title}</h1><p>{text}</p></main></body></html>""".encode()
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Cache-Control", "no-store")
@@ -890,7 +1085,6 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    # ---- sign-in
     def auth_start(self, q):
         cred = load_cred()
         verifier = b64url(secrets.token_bytes(48))
@@ -917,17 +1111,17 @@ class Handler(BaseHTTPRequestHandler):
         for s in [s for s, p in PENDING.items() if now - p["created"] > 900]:
             PENDING.pop(s, None)
         PENDING[state] = {"verifier": verifier, "nonce": nonce, "client_id": params["client_id"],
-                          "redirect_uri": redirect_uri, "created": now}
+                          "redirect_uri": redirect_uri, "created": now, "friendly": self.friendly}
         self.redirect(AUTHORIZE_URL + "?" + urllib.parse.urlencode(params, quote_via=urllib.parse.quote))
 
     def auth_callback(self, q):
         get = lambda k: (q.get(k) or [""])[0]
         pending = PENDING.pop(get("state"), None)
         if not pending:
-            return self.redirect("/?signin=error&reason=expired")
+            return self.auth_finish("/?signin=error&reason=expired", pending)
         if get("error"):
-            return self.redirect("/?signin=denied" if get("error") == "access_denied"
-                                 else "/?signin=error&reason=" + urllib.parse.quote(get("error")))
+            return self.auth_finish("/?signin=denied" if get("error") == "access_denied"
+                                 else "/?signin=error&reason=" + urllib.parse.quote(get("error")), pending)
         try:
             with LOCK:
                 cred = load_cred()
@@ -964,12 +1158,12 @@ class Handler(BaseHTTPRequestHandler):
                 })
                 set_active(cred, "chatgpt")
                 save_cred(cred)
-            self.redirect("/?signin=ok" if PLAN_SCOPE in scopes else "/?signin=noplan")
+            self.auth_finish("/?signin=ok" if PLAN_SCOPE in scopes else "/?signin=noplan", pending)
         except AppError as e:
-            self.redirect("/?signin=error&reason=" + urllib.parse.quote(e.code))
+            self.auth_finish("/?signin=error&reason=" + urllib.parse.quote(e.code), pending)
         except Exception as e:
             print(f"Sign-in failed: {type(e).__name__}: {e}")
-            self.redirect("/?signin=error&reason=" + urllib.parse.quote(type(e).__name__))
+            self.auth_finish("/?signin=error&reason=" + urllib.parse.quote(type(e).__name__), pending)
 
     # ---- OpenRouter sign-in (OAuth PKCE; the key it returns is stored here, never sent to the page)
     def openrouter_start(self):
@@ -978,7 +1172,7 @@ class Handler(BaseHTTPRequestHandler):
         now = time.time()
         for s in [s for s, p in PENDING.items() if now - p["created"] > 900]:
             PENDING.pop(s, None)
-        PENDING[state] = {"kind": "openrouter", "verifier": verifier, "created": now}
+        PENDING[state] = {"kind": "openrouter", "verifier": verifier, "created": now, "friendly": self.friendly}
         # OpenRouter accepts http://localhost on any port; the request is sent on to 127.0.0.1 by do_GET.
         params = {"callback_url": f"http://localhost:{self.server.server_port}{OPENROUTER_CALLBACK}",
                   "code_challenge": b64url(hashlib.sha256(verifier.encode()).digest()),
@@ -994,9 +1188,9 @@ class Handler(BaseHTTPRequestHandler):
             if mine:
                 pending = PENDING.pop(mine[-1][0])
         if not pending or pending.get("kind") != "openrouter" or time.time() - pending["created"] > 900:
-            return self.redirect("/?signin=error&reason=expired")
+            return self.auth_finish("/?signin=error&reason=expired", pending)
         if get("error") or not get("code"):
-            return self.redirect("/?signin=denied")
+            return self.auth_finish("/?signin=denied", pending)
         try:
             data = http_json("openrouter", OPENROUTER_API + "/auth/keys", {}, json.dumps({
                 "code": get("code"), "code_verifier": pending["verifier"], "code_challenge_method": "S256"}).encode())
@@ -1008,12 +1202,12 @@ class Handler(BaseHTTPRequestHandler):
                 cred.setdefault("keys", {})["openrouter"] = key
                 set_active(cred, "openrouter")
                 save_cred(cred)
-            self.redirect("/?signin=ok")
+            self.auth_finish("/?signin=ok", pending)
         except AppError as e:
-            self.redirect("/?signin=error&reason=" + urllib.parse.quote(e.code))
+            self.auth_finish("/?signin=error&reason=" + urllib.parse.quote(e.code), pending)
         except Exception as e:
             print(f"OpenRouter sign-in failed: {type(e).__name__}: {e}")
-            self.redirect("/?signin=error&reason=" + urllib.parse.quote(type(e).__name__))
+            self.auth_finish("/?signin=error&reason=" + urllib.parse.quote(type(e).__name__), pending)
 
     # ---- API
     def api_session(self):
@@ -1035,7 +1229,7 @@ class Handler(BaseHTTPRequestHandler):
             "status": "signed_out" if not connected else "ready" if sharing else "noplan",
             "sharing": connected and sharing,
             "usage_url": PROVIDERS[provider]["usage_url"] if connected else USAGE_URL,
-            "saved": saved})
+            "saved": saved, "desktop": DESKTOP is not None, "auth": dict(AUTH_RESULT)})
 
     def current(self):
         cred = load_cred()
@@ -1126,6 +1320,24 @@ class Handler(BaseHTTPRequestHandler):
             save_cred(cred)
         self.send_json(200, {"ok": True})
 
+    def api_desktop(self, action, body):
+        """Things the app window can't do itself: open the system browser, save a file, print."""
+        if action == "open":
+            url = str(body.get("url") or "")
+            if url.startswith("/auth/"):  # sign-in runs in the browser, then returns to this server
+                url = self.origin + url
+            elif not re.match(r"https?://", url, re.I):
+                raise AppError("bad_url", "Only web links can be opened.")
+            DESKTOP.open_url(url)
+            return self.send_json(200, {"ok": True})
+        if action == "save":
+            path = DESKTOP.save_html(str(body.get("name") or "explanation.html"), str(body.get("html") or ""))
+            return self.send_json(200, {"saved": path})
+        if action == "print":
+            DESKTOP.print_html(str(body.get("html") or ""), str(body.get("title") or "Explanation"))
+            return self.send_json(200, {"ok": True})
+        raise AppError("not_found", "Unknown action.", 404)
+
     def emit(self, obj):
         self.wfile.write((json.dumps(obj) + "\n").encode())
         self.wfile.flush()
@@ -1200,7 +1412,9 @@ class Handler(BaseHTTPRequestHandler):
 
 class Server(ThreadingHTTPServer):
     daemon_threads = True
-    allow_reuse_address = False
+    # Restarting must get port 1455 back even while the OS still holds the last connections
+    # (TIME_WAIT). On Windows SO_REUSEADDR would let other programs share the port, so not there.
+    allow_reuse_address = sys.platform != "win32"
 
 
 def main():
@@ -1211,8 +1425,9 @@ def main():
         server = Server((HOST, PREFERRED_PORT), Handler)
     except OSError:
         server = Server((HOST, 0), Handler)  # any free port works for the loopback callback
-    url = f"http://{HOST}:{server.server_port}/"
-    print(f"{APP_NAME} is running at {url}")
+    url = f"http://{HOST}:{server.server_port}/"  # the page moves itself to the friendly address if this browser can reach it
+    print(f"{APP_NAME} is running at http://{FRIENDLY_HOST}:{server.server_port}/")
+    print(f"  (if your browser can't open that, use {url})")
     print(f"Credentials are stored in {CONFIG_DIR} (owner-only). Press Ctrl+C to stop.")
     if "--no-browser" not in sys.argv:
         threading.Timer(0.6, lambda: webbrowser.open(url)).start()

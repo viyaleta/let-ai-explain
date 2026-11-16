@@ -1,0 +1,189 @@
+# Builds the desktop apps and attaches them to a GitHub Release.
+#
+# Runs when you push a tag like v1.0.0:   git tag v1.0.0 && git push origin v1.0.0
+# You can also run it by hand (Actions tab -> Build desktop apps -> Run workflow) to get the
+# files as build artifacts without making a release.
+#
+# Signing is OPTIONAL. Each signing step runs only if its repository secrets are set
+# (Settings -> Secrets and variables -> Actions); otherwise the builds are unsigned.
+#   macOS signing:      MACOS_CERTIFICATE (base64 .p12 of a "Developer ID Application" cert),
+#                       MACOS_CERTIFICATE_PASSWORD, MACOS_SIGN_IDENTITY
+#                       (e.g. "Developer ID Application: Your Name (TEAMID)")
+#   macOS notarizing:   APPLE_ID, APPLE_TEAM_ID, APPLE_APP_PASSWORD (an app-specific password)
+#   Windows signing:    WINDOWS_CERTIFICATE (base64 .pfx), WINDOWS_CERTIFICATE_PASSWORD
+name: Build desktop apps
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  # python.org's macOS installer is universal2 (Intel + Apple Silicon), which a universal app needs.
+  MACOS_PYTHON: "3.13.12"
+  WINDOWS_PYTHON: "3.13"
+
+jobs:
+  macos:
+    runs-on: macos-14
+    env:
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version from tag
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then V="${GITHUB_REF_NAME#v}"; else V="0.0.0"; fi
+          echo "APP_VERSION=$V" >> "$GITHUB_ENV"
+
+      - name: Install universal2 Python from python.org
+        run: |
+          curl -fsSLO "https://www.python.org/ftp/python/${MACOS_PYTHON}/python-${MACOS_PYTHON}-macos11.pkg"
+          sudo installer -pkg "python-${MACOS_PYTHON}-macos11.pkg" -target /
+          PYV="${MACOS_PYTHON%.*}"
+          "/Library/Frameworks/Python.framework/Versions/${PYV}/bin/python3" -m venv build-env
+          build-env/bin/python -m pip install --upgrade pip
+          build-env/bin/python -m pip install -r packaging/requirements-build.txt
+
+      - name: Build the app (universal2)
+        env:
+          TARGET_ARCH: universal2
+        run: |
+          build-env/bin/pyinstaller --noconfirm --clean packaging/let_ai_explain.spec
+          lipo -archs "dist/Let AI Explain.app/Contents/MacOS/Let AI Explain"
+
+      # ---- OPTIONAL: Developer ID signing (skipped when MACOS_CERTIFICATE isn't set) ----
+      - name: "Optional: sign the app"
+        if: env.MACOS_CERTIFICATE != ''
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(uuidgen)"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security import "$RUNNER_TEMP/cert.p12" -P "$MACOS_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN"
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm -f "$RUNNER_TEMP/cert.p12"
+          codesign --force --deep --options runtime --timestamp \
+            --entitlements packaging/macos/entitlements.plist \
+            --sign "$MACOS_SIGN_IDENTITY" "dist/Let AI Explain.app"
+          codesign --verify --deep --strict --verbose=2 "dist/Let AI Explain.app"
+
+      # ---- OPTIONAL: notarization (needs signing above plus APPLE_ID secrets) ----
+      - name: "Optional: notarize and staple the app"
+        if: env.MACOS_CERTIFICATE != '' && env.APPLE_ID != ''
+        run: |
+          ditto -c -k --keepParent "dist/Let AI Explain.app" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "dist/Let AI Explain.app"
+
+      - name: Make the .zip and .dmg
+        run: packaging/macos/package.sh "dist/Let AI Explain.app" out
+
+      - name: "Optional: sign, notarize and staple the .dmg"
+        if: env.MACOS_CERTIFICATE != '' && env.APPLE_ID != ''
+        run: |
+          codesign --force --timestamp --sign "$MACOS_SIGN_IDENTITY" out/LetAIExplain-macOS.dmg
+          xcrun notarytool submit out/LetAIExplain-macOS.dmg \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple out/LetAIExplain-macOS.dmg
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos
+          path: out/*
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    env:
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version from tag
+        run: |
+          $v = if ($env:GITHUB_REF -like 'refs/tags/v*') { $env:GITHUB_REF_NAME.Substring(1) } else { '0.0.0' }
+          "APP_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.WINDOWS_PYTHON }}
+          architecture: x64
+
+      - name: Install build tools
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r packaging/requirements-build.txt
+
+      - name: Build the app
+        run: pyinstaller --noconfirm --clean packaging/let_ai_explain.spec
+
+      # ---- OPTIONAL: code signing (skipped when WINDOWS_CERTIFICATE isn't set) ----
+      - name: "Optional: find signtool and decode the certificate"
+        if: env.WINDOWS_CERTIFICATE != ''
+        run: |
+          $signtool = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin\*\x64\signtool.exe" |
+            Sort-Object FullName -Descending | Select-Object -First 1
+          "SIGNTOOL=$($signtool.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          [IO.File]::WriteAllBytes("$env:RUNNER_TEMP\cert.pfx", [Convert]::FromBase64String($env:WINDOWS_CERTIFICATE))
+
+      - name: "Optional: sign the app"
+        if: env.WINDOWS_CERTIFICATE != ''
+        run: |
+          & $env:SIGNTOOL sign /f "$env:RUNNER_TEMP\cert.pfx" /p $env:WINDOWS_CERTIFICATE_PASSWORD `
+            /fd sha256 /tr http://timestamp.digicert.com /td sha256 "dist\Let AI Explain\Let AI Explain.exe"
+
+      - name: Zip the app folder
+        run: |
+          New-Item -ItemType Directory -Force out | Out-Null
+          Compress-Archive -Path "dist\Let AI Explain" -DestinationPath out\LetAIExplain-Windows.zip -Force
+
+      - name: Build the installer (Inno Setup)
+        run: |
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { choco install innosetup --no-progress -y | Out-Null }
+          & $iscc "/DAppVersion=$env:APP_VERSION" "/DSourceDir=$PWD\dist\Let AI Explain" "/DOutputDir=$PWD\out" packaging\windows\installer.iss
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: "Optional: sign the installer"
+        if: env.WINDOWS_CERTIFICATE != ''
+        run: |
+          & $env:SIGNTOOL sign /f "$env:RUNNER_TEMP\cert.pfx" /p $env:WINDOWS_CERTIFICATE_PASSWORD `
+            /fd sha256 /tr http://timestamp.digicert.com /td sha256 out\LetAIExplain-Windows-Setup.exe
+          Remove-Item "$env:RUNNER_TEMP\cert.pfx"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: out/*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: files
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: files/*
+          generate_release_notes: true
