@@ -21,11 +21,7 @@ All versions are on the [Releases page](https://github.com/viyaleta/let-ai-expla
 
 **Mac:** open the .dmg and drag **Let AI Explain** into **Applications**. **Windows:** run the installer (no admin rights needed), or unzip the .zip anywhere and run **Let AI Explain.exe**.
 
-**The first time you open it**, your computer may warn you, because the app isn't signed by Apple or Microsoft yet. This is a one-time step:
-
-- **macOS 14 or earlier:** right-click (or Control-click) **Let AI Explain** in Applications, choose **Open**, then click **Open** again.
-- **macOS 15 or later:** open the app once and close the warning. Then go to **System Settings → Privacy & Security**, scroll down, click **Open Anyway** next to Let AI Explain, and confirm.
-- **Windows:** if you see "Windows protected your PC", click **More info**, then **Run anyway**.
+**The first time you open it:** on a Mac, macOS asks you to confirm opening an app downloaded from the internet; click **Open**. The Mac app is signed and notarized by Apple. On Windows, if you see "Windows protected your PC", click **More info**, then **Run anyway** (the Windows app isn't signed yet; this is a one-time step).
 
 The app opens in its own window. Sign-in pages and links open in your usual browser; when you finish signing in there, come back to the app window and it updates by itself. To quit, close the window.
 
