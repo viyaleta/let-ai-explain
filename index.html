@@ -169,6 +169,11 @@ main{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);min-height:c
 .prose hr.deeper-sep{width:40%;margin:3.2rem auto}
 /* Which model wrote the section: one tiny line, never part of a selection. */
 .prose .byline{font-family:var(--sans);font-size:.72rem;line-height:1.4;color:var(--muted);margin:1.4rem 0 0;-webkit-user-select:none;user-select:none}
+.byline-who{cursor:help;border-radius:3px;text-decoration:underline dotted;text-decoration-color:var(--rule);text-underline-offset:.2em}
+.byline-who:hover,.byline-who[aria-expanded="true"]{color:var(--ink);text-decoration-color:currentColor}
+.byline-who:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.usage-pop{position:fixed;z-index:60;max-width:min(22rem,calc(100vw - 32px));padding:.55rem .75rem;border:1px solid var(--rule);border-radius:10px;background:var(--surface);color:var(--ink);box-shadow:0 12px 30px -14px rgba(18,28,48,.45);font-family:var(--sans);font-size:.76rem;line-height:1.5;font-variant-numeric:tabular-nums}
+.usage-pop[hidden]{display:none}
 /* Citations and references (hidden until the References toggle is on) */
 sup.cite{font-family:var(--sans);font-size:.62em;font-weight:600;line-height:0;margin-left:.08em}
 sup.cite a{color:var(--accent);text-decoration:none}
@@ -1207,14 +1212,23 @@ function progressText(p, what) {
 // Ask the model through the local server; streams text and resolves only on a completed response.
 // effort: OpenRouter reasoning effort ('low' for explanations, 'minimal' for quick side answers).
 // onProgress({ phase: 'waiting' | 'thinking' | 'writing', words, model }) reports what the stream is doing.
-// meta, if given, gets meta.model: the model the provider reports writing the answer (else the chosen one).
+// meta, if given, gets meta.model: the model the provider reports writing the answer (else the chosen one),
+// and meta.usage: that answer's token counts and cost (see usageRecord), when the provider reported them.
+// Every call's usage, failed attempts included, also counts toward the session it was made for.
 async function callLLM({ system, user, signal, onText, onProgress, images, effort = 'minimal', meta }) {
   if (!session.connected) throw new AppError('not_signed_in');
   if (!usable()) throw new AppError('plan_usage_not_enabled');
-  const model = currentModel();
+  const model = currentModel(), provider = session.provider, st = state, info = meta || {};
   // OpenRouter lists which models take images; skip the request when this one doesn't.
   if (images?.length && models.find(x => x.slug === model)?.images === false) throw new AppError('images_unsupported');
-  const once = limits => streamAnswer({ model, system, user, signal, onText, onProgress, images, effort, limits, meta });
+  const once = async limits => {
+    info.reported = null; info.tokens = null;
+    try { return await streamAnswer({ model, system, user, signal, onText, onProgress, images, effort, limits, meta: info }); }
+    finally {
+      info.usage = info.tokens ? usageRecord(info.tokens, provider, info.reported || model, model) : null;
+      if (info.usage) addUsage(st, info.usage);
+    }
+  };
   if (!usingFreeRouter(model)) return once(null);
   // Free models rotate, so one retry often lands on a faster one. Never wait more than 4 minutes in all.
   const deadline = Date.now() + FREE_LIMITS.total;
@@ -1229,6 +1243,75 @@ async function callLLM({ system, user, signal, onText, onProgress, images, effor
     }
   }
 }
+
+/* ---------------- Token usage and cost ---------------- */
+// USD per million input / output tokens for direct API keys: list prices when this was written, used
+// only for an estimate (cached-input discounts aren't applied). A model not listed gets no cost.
+const PRICES = [
+  [/^gpt-5(-\d{4}-\d{2}-\d{2}|-chat-latest)?$/, 1.25, 10], [/^gpt-5\.1(-\d{4}-\d{2}-\d{2}|-chat-latest)?$/, 1.25, 10],
+  [/^gpt-5-mini(-\d{4}-\d{2}-\d{2})?$/, 0.25, 2], [/^gpt-5-nano(-\d{4}-\d{2}-\d{2})?$/, 0.05, 0.4],
+  [/^gpt-4\.1(-\d{4}-\d{2}-\d{2})?$/, 2, 8], [/^gpt-4\.1-mini(-\d{4}-\d{2}-\d{2})?$/, 0.4, 1.6], [/^gpt-4\.1-nano(-\d{4}-\d{2}-\d{2})?$/, 0.1, 0.4],
+  [/^gpt-4o(-\d{4}-\d{2}-\d{2})?$/, 2.5, 10], [/^gpt-4o-mini(-\d{4}-\d{2}-\d{2})?$/, 0.15, 0.6],
+  [/^o3(-\d{4}-\d{2}-\d{2})?$/, 2, 8], [/^o3-mini(-\d{4}-\d{2}-\d{2})?$/, 1.1, 4.4], [/^o4-mini(-\d{4}-\d{2}-\d{2})?$/, 1.1, 4.4],
+  [/^claude-opus-4-5(-\d{8})?$/, 5, 25], [/^claude-opus-4(-1|-0)?(-\d{8})?$/, 15, 75], [/^claude-3-opus/, 15, 75],
+  [/^claude-sonnet-4(-5|-0)?(-\d{8})?$/, 3, 15], [/^claude-3-[57]-sonnet/, 3, 15],
+  [/^claude-haiku-4-5(-\d{8})?$/, 1, 5], [/^claude-3-5-haiku/, 0.8, 4], [/^claude-3-haiku/, 0.25, 1.25],
+  [/^gemini-3-pro-preview/, 2, 12], [/^gemini-3-flash-preview/, 0.5, 3],
+  [/^gemini-2\.5-pro/, 1.25, 10], [/^gemini-2\.5-flash-lite/, 0.1, 0.4], [/^gemini-2\.5-flash/, 0.3, 2.5],
+  [/^gemini-2\.0-flash-lite/, 0.075, 0.3], [/^gemini-2\.0-flash/, 0.1, 0.4]
+];
+// One call's usage: { input, output[, reasoning, cached] } plus cost (USD) and est (an estimate),
+// or plan (a ChatGPT plan: no per-call cost). OpenRouter reports its cost; else it's estimated from
+// OpenRouter's listed price for the model, or from PRICES for a direct API key.
+function usageRecord(t, provider, reported, chosen) {
+  const rec = {};
+  for (const k of ['input', 'output', 'reasoning', 'cached']) if (Number.isFinite(t[k]) && t[k] >= 0) rec[k] = t[k];
+  if (provider === 'chatgpt') return { ...rec, plan: true };
+  if (provider === 'openrouter' && Number.isFinite(t.cost)) return { ...rec, cost: t.cost };
+  let per = null;
+  if (provider === 'openrouter') {
+    const price = (models.find(m => m.slug === reported) || models.find(m => m.slug === chosen))?.price;
+    if (price) per = [price.input, price.output];
+  } else {
+    const row = PRICES.find(([re]) => re.test(reported)) || PRICES.find(([re]) => re.test(chosen));
+    if (row) per = [row[1] / 1e6, row[2] / 1e6];
+  }
+  if (per) { rec.cost = (rec.input || 0) * per[0] + (rec.output || 0) * per[1]; rec.est = true; }
+  return rec;
+}
+// A session's running totals: tokens, the known cost, and how many calls had no cost (then the
+// total isn't shown) or were on a ChatGPT plan.
+function addUsage(st, rec) {
+  const t = st.usage ||= { input: 0, output: 0, cost: 0, est: false, unpriced: 0, plan: 0, calls: 0 };
+  t.input += rec.input || 0; t.output += rec.output || 0; t.calls++;
+  if (rec.plan) t.plan++;
+  else if (Number.isFinite(rec.cost)) { t.cost += rec.cost; t.est ||= !!rec.est; }
+  else t.unpriced++;
+  if (st === state && st.sid) scheduleSave();
+}
+// 950 · 6.1k · 38k · 1.2M
+function compactNum(n) {
+  n = Math.max(0, Math.round(n || 0));
+  if (n < 1000) return String(n);
+  if (n < 9950) return (n / 1000).toFixed(1).replace(/\.0$/, '') + 'k';
+  if (n < 999500) return Math.round(n / 1000) + 'k';
+  return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+}
+function costText(cost, est) {
+  const amount = cost === 0 ? 'no cost' : cost < 0.005 ? 'under $0.01' : `$${cost.toFixed(2)}`;
+  if (!est || cost === 0) return amount;
+  return amount.startsWith('$') ? `about ${amount} (estimate)` : `${amount} (estimate)`;
+}
+// Saved usage, checked field by field (history is just data).
+function cleanUsage(u, fields) {
+  if (!u || typeof u !== 'object') return null;
+  const o = {};
+  for (const k of fields) if (Number.isFinite(u[k]) && u[k] >= 0) o[k] = u[k];
+  for (const k of ['est', 'plan']) if (u[k] === true) o[k] = true;
+  return Object.keys(o).length ? o : null;
+}
+const cleanRecord = u => cleanUsage(u, ['input', 'output', 'reasoning', 'cached', 'cost']);
+const cleanTotals = u => { const o = cleanUsage(u, ['input', 'output', 'cost', 'unpriced', 'plan', 'calls']); return o ? { input: 0, output: 0, cost: 0, est: false, unpriced: 0, plan: 0, calls: 0, ...o, est: !!o.est } : null; };
 
 // Page events for one answer from the local server's /api/respond (newline-delimited JSON).
 async function* localEvents({ model, system, user, images, effort, signal }) {
@@ -1301,7 +1384,8 @@ async function streamAnswer({ model, system, user, signal, onText, onProgress, i
         else if (ev.done) done = true;
         else if (ev.error) throw Object.assign(new AppError(ev.error, ev.message), { retryable: !!ev.retryable });
         else if (typeof ev.images === 'number') imagesSent = ev.images === images.length;
-        else if (typeof ev.model === 'string') { p.model = ev.model; report(); }
+        else if (ev.usage && typeof ev.usage === 'object') { if (meta) meta.tokens = ev.usage; }
+        else if (typeof ev.model === 'string') { p.model = ev.model; if (meta) meta.reported = ev.model; report(); }
         else if (typeof ev.reasoning === 'number') { if (!gotText && p.phase !== 'thinking') { p.phase = 'thinking'; report(); } }
         else if (ev.wait) { if (!gotText && p.phase !== 'waiting') { p.phase = 'waiting'; report(); } }
       }
@@ -2642,14 +2726,66 @@ function assignBlockIds() {
 }
 
 // Who wrote a section: the model the provider reported (openrouter/free picks one), else the chosen id.
-const writerOf = meta => ({ model: meta?.model || currentModel(), via: provName() });
+const writerOf = meta => ({ model: meta?.model || currentModel(), via: provName(), usage: meta?.usage || null });
 // The tiny "Written by …" line closing section i. Go deeper sections get one only when a
 // different model wrote them than the main explanation. Null when there's nothing to show.
 function bylineFor(writers, i) {
   const w = writers?.[i];
   if (!w?.model || (i > 0 && w.model === writers[0]?.model)) return null;
-  return h('p', { class: 'byline', text: `Written by ${w.model}${w.via ? ' via ' + w.via : ''}` });
+  // Hover, focus or tap shows token usage (usagePop); the line itself stays as it was.
+  return h('p', { class: 'byline' }, h('span', { class: 'byline-who', tabindex: '0', role: 'button', 'aria-expanded': 'false',
+    'aria-controls': 'usage-pop', 'data-section': String(i), text: `Written by ${w.model}${w.via ? ' via ' + w.via : ''}` }));
 }
+
+// The usage popover under a "Written by" line: this section's tokens, then the session's totals.
+const usagePop = h('div', { id: 'usage-pop', class: 'usage-pop', role: 'tooltip', hidden: '' });
+document.body.append(usagePop);
+let usageFor = null, usagePinned = false;
+function usageLines(i) {
+  const lines = [], w = state.writers?.[i]?.usage, t = state.usage;
+  if (w && ('input' in w || 'output' in w))
+    lines.push(`${i ? 'This layer' : 'This explanation'}: ${compactNum(w.input)} in · ${compactNum(w.output)} out`);
+  if (t?.calls) {
+    const cost = t.plan === t.calls ? 'Included in your ChatGPT plan'
+      : t.unpriced ? '' : costText(t.cost, t.est);
+    lines.push(`With notes and Go deeper: ${compactNum(t.input + t.output)} tokens${cost ? ' · ' + cost : ''}`);
+  }
+  return lines.length ? lines : ['The provider didn’t report token usage for this explanation.'];
+}
+function showUsage(el, pin = false) {
+  usageFor?.setAttribute('aria-expanded', 'false');
+  usageFor = el; usagePinned = pin;
+  usagePop.replaceChildren(...usageLines(+el.dataset.section || 0).map(t => h('div', { text: t })));
+  usagePop.hidden = false;
+  el.setAttribute('aria-expanded', 'true');
+  const r = el.getBoundingClientRect(), pw = usagePop.offsetWidth, ph = usagePop.offsetHeight;
+  const left = Math.max(16, Math.min(r.left, innerWidth - pw - 16));
+  const top = r.bottom + 6 + ph <= innerHeight - 8 ? r.bottom + 6 : Math.max(8, r.top - 6 - ph);
+  usagePop.style.left = left + 'px'; usagePop.style.top = top + 'px';
+}
+function hideUsage() {
+  if (!usageFor) return;
+  usageFor.setAttribute('aria-expanded', 'false');
+  usageFor = null; usagePinned = false; usagePop.hidden = true;
+}
+const whoOf = e => e.target?.closest?.('.byline-who');
+document.addEventListener('mouseover', e => { const el = whoOf(e); if (el && el !== usageFor) showUsage(el); });
+document.addEventListener('mouseout', e => { const el = whoOf(e); if (el && el === usageFor && !usagePinned && !el.contains(e.relatedTarget)) hideUsage(); });
+document.addEventListener('focusin', e => { const el = whoOf(e); if (el) showUsage(el); });
+document.addEventListener('focusout', e => { if (whoOf(e) === usageFor) hideUsage(); });
+// Tap (or click) pins it open; another tap, a tap elsewhere or Esc closes it.
+document.addEventListener('click', e => {
+  const el = whoOf(e);
+  if (el) { if (el === usageFor && usagePinned) hideUsage(); else showUsage(el, true); }
+  else if (usageFor) hideUsage();
+});
+document.addEventListener('keydown', e => {
+  const el = whoOf(e);
+  if (e.key === 'Escape' && usageFor) hideUsage();
+  else if (el && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); if (el === usageFor && usagePinned) hideUsage(); else showUsage(el, true); }
+});
+addEventListener('scroll', hideUsage, { passive: true, capture: true });
+addEventListener('resize', hideUsage);
 
 function setStatus(msg, isError = false) {
   if (!msg) { statusEl.hidden = true; return; }
@@ -3389,6 +3525,7 @@ async function buildExport() {
   const st = state;
   const art = article.cloneNode(true);
   $$('button, script, .img-missing, .dots', art).forEach(e => e.remove());
+  $$('.byline-who', art).forEach(e => e.replaceWith(e.textContent)); // no usage in exports
   $$('details', art).forEach(d => d.setAttribute('open', ''));
   const withRefs = st.showRefs && st.refs.length > 0; // exports include references only while they're shown
   if (!withRefs) $$('sup.cite', art).forEach(e => e.remove());
@@ -3833,7 +3970,7 @@ function snapshot(st) {
   }
   return {
     v: 1, id: st.sid, created: st.created || Date.now(), ts: Date.now(), input: st.input, level: st.level, title: st.title,
-    sections: st.sections, writers: st.writers || [], sourceImages: st.sourceImages, refs: st.refs.map(({ n, ...r }) => r), next: st.next, blocks, blockSeq,
+    sections: st.sections, writers: st.writers || [], usage: st.usage || null, sourceImages: st.sourceImages, refs: st.refs.map(({ n, ...r }) => r), next: st.next, blocks, blockSeq,
     elabs: st.elabs.filter(e => e.box.isConnected).map(e => ({ after: e.after, quote: e.quote, md: e.md, blocks: blockList([...e.box.querySelector('.elab-body').children]) })),
     notes: st.notes.filter(n => !n.failed).map(n => ({ quote: n.quote ?? null, blockId: n.blockId || null, question: n.question ?? null, answer: n.answer || '', md: n.md, visual: !!n.visual }))
   };
@@ -3864,7 +4001,8 @@ async function restoreSession(id, { push = false } = {}) {
   $('#empty').hidden = true; $('#main-stop').hidden = true;
   article.replaceChildren(); notesList.replaceChildren(); resetFollowup();
   state = { docMd: s.sections.join('\n\n---\n\n'), sections: [...s.sections],
-    writers: (Array.isArray(s.writers) ? s.writers : []).map(w => w && typeof w.model === 'string' ? { model: w.model, via: String(w.via || '') } : null),
+    writers: (Array.isArray(s.writers) ? s.writers : []).map(w => w && typeof w.model === 'string' ? { model: w.model, via: String(w.via || ''), usage: cleanRecord(w.usage) } : null),
+    usage: cleanTotals(s.usage),
     title: s.title || '', notes: [], elabs: [], input: s.input || '',
     level: LEVELS.includes(s.level) ? s.level : 'standard', sourceImages: Array.isArray(s.sourceImages) ? s.sourceImages : [],
     next: Array.isArray(s.next) ? s.next : [], refs: (Array.isArray(s.refs) ? s.refs : []).map((r, i) => ({ ...r, n: i + 1 })),

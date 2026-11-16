@@ -183,6 +183,39 @@ test('Gemini: a network failure is a restricted key when Google answers a dummy 
   await assert.rejects(P.checkKey('gemini', key, blocked), e => e.code === 'key_restricted');
 });
 
+test('usage: every provider reports token counts (and OpenRouter its cost) just before the end', async () => {
+  const want = {
+    'openai-usage': [{ input: 6120, output: 3210, reasoning: 1024, cached: 2048 }, { done: true }],
+    'openai-incomplete-usage': [{ input: 900, output: 16000 }, { error: 'incomplete', message: 'max_output_tokens' }],
+    'openrouter-usage': [{ input: 6100, output: 3200, reasoning: 512, cost: 0.0663 }, { done: true }],
+    'anthropic-usage': [{ input: 2300, output: 350, cached: 800 }, { done: true }],
+    'gemini-usage': [{ input: 5000, output: 1320, reasoning: 900, cached: 1000 }, { done: true }]
+  };
+  for (const [f, [usage, last]] of Object.entries(want)) {
+    const evs = await collect(P.PARSERS[f.split('-')[0]](P.sseEvents(chunkedBody(readFileSync(path.join(ROOT, `tests/fixtures/sse/${f}.sse`))))));
+    assert.deepEqual(evs.slice(-2), [{ usage }, last], f);
+    assert.equal(evs.filter(e => 'usage' in e).length, 1, f);
+  }
+  // Streams that report nothing get no usage event.
+  const plain = await collect(P.PARSERS.openai(P.sseEvents(chunkedBody(readFileSync(path.join(ROOT, 'tests/fixtures/sse/openai-ok.sse'))))));
+  assert.ok(!plain.some(e => 'usage' in e));
+});
+
+test('OpenRouter: asks for usage, and lists per-token prices (none when variable)', async () => {
+  const [, body] = P.buildRequest('openrouter', 'm', 's', 't', [], 8192, null);
+  assert.deepEqual(body.usage, { include: true });
+  const routes = JSON.parse(readFileSync(path.join(ROOT, 'tests/fixtures/models/openrouter.json'), 'utf8'));
+  const fakeFetch = async url => {
+    const hit = Object.entries(routes).find(([part]) => url.split('?')[0].endsWith(part));
+    return hit ? new Response(JSON.stringify(hit[1])) : new Response('{}', { status: 404 });
+  };
+  const { models } = await P.listModels('openrouter', 'k', fakeFetch);
+  const by = Object.fromEntries(models.map(m => [m.slug, m.price]));
+  assert.deepEqual(by['google/gemini-2.5-flash'], { input: 0.0000003, output: 0.0000025 });
+  assert.equal(by['google/gemini-3-flash'], undefined); // listed as -1: variable
+  assert.deepEqual(by['openrouter/free'], { input: 0, output: 0 });
+});
+
 test('PKCE: challenge is the S256 of the verifier', async () => {
   const { verifier, challenge } = await P.pkcePair();
   assert.match(verifier, /^[A-Za-z0-9_-]{43}$/);

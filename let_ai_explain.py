@@ -529,11 +529,16 @@ def list_models(provider, key):
         for m in data:
             arch = m.get("architecture") or {}
             if m.get("id") and "text" in (arch.get("output_modalities") or ["text"]):
-                models.append({"slug": m["id"], "name": m.get("name") or m["id"],
-                               "images": "image" in (arch.get("input_modalities") or [])})
+                entry = {"slug": m["id"], "name": m.get("name") or m["id"],
+                         "images": "image" in (arch.get("input_modalities") or [])}
+                price = openrouter_price(m.get("pricing"))
+                if price:
+                    entry["price"] = price
+                models.append(entry)
         models.sort(key=lambda m: m["name"].lower())
         if not any(m["slug"] == OPENROUTER_FREE for m in models):
-            models.insert(0, {"slug": OPENROUTER_FREE, "name": "Free models (OpenRouter picks)", "images": True})
+            models.insert(0, {"slug": OPENROUTER_FREE, "name": "Free models (OpenRouter picks)", "images": True,
+                              "price": {"input": 0.0, "output": 0.0}})
         credits = openrouter_credits(h)
         if credits is not None and credits <= 0:
             default = OPENROUTER_FREE
@@ -542,6 +547,18 @@ def list_models(provider, key):
             default = max(flash, key=lambda s: version_of(s, r"gemini-(\d+(?:\.\d+)?)"), default=OPENROUTER_FREE)
         return models, default, {"credits": credits}
     raise AppError("bad_provider", "Unknown provider.")
+
+
+def openrouter_price(pricing):
+    """USD per input and output token from OpenRouter's model list, or None (unknown or variable,
+    which OpenRouter lists as a negative price)."""
+    try:
+        inp, out = float((pricing or {})["prompt"]), float((pricing or {})["completion"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not (0 <= inp < 1 and 0 <= out < 1):  # finite, not negative, and per token
+        return None
+    return {"input": inp, "output": out}
 
 
 def openrouter_credits(headers):
@@ -566,6 +583,8 @@ def openrouter_credits(headers):
 # ndjson events: {"delta": text}, then {"done": true} or {"error": code, "message": ...}.
 # OpenRouter also yields progress: {"wait": true} while queued, {"reasoning": n} (a count of
 # reasoning chunks; their text isn't sent) and {"model": slug} for the model that answers.
+# Every parser yields {"usage": {...}} (see usage_event) just before its last event when the
+# provider reported token counts.
 # A stream that ends without either is reported as "interrupted" by the caller.
 def sse_events(lines):
     for raw in lines:
@@ -586,6 +605,39 @@ def sse_events(lines):
             yield ev
 
 
+def _num(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def usage_event(inp, out, reasoning=None, cached=None, cost=None):
+    """{"usage": {"input", "output"[, "reasoning", "cached", "cost"]}}, or None when nothing was
+    reported. Output counts include reasoning tokens; input counts include cached ones. cost is in
+    USD, as OpenRouter reports it."""
+    if not _num(inp) and not _num(out):
+        return None
+    u = {"input": int(inp) if _num(inp) else 0, "output": int(out) if _num(out) else 0}
+    if _num(reasoning) and reasoning > 0:
+        u["reasoning"] = int(reasoning)
+    if _num(cached) and cached > 0:
+        u["cached"] = int(cached)
+    if _num(cost) and cost >= 0:
+        u["cost"] = float(cost)
+    return {"usage": u}
+
+
+def with_usage(usage, *events):
+    return ([usage] if usage else []) + list(events)
+
+
+def openai_usage(resp):
+    u = (resp or {}).get("usage") if isinstance(resp, dict) else None
+    if not isinstance(u, dict):
+        return None
+    return usage_event(u.get("input_tokens"), u.get("output_tokens"),
+                       (u.get("output_tokens_details") or {}).get("reasoning_tokens"),
+                       (u.get("input_tokens_details") or {}).get("cached_tokens"))
+
+
 def parse_openai(events):
     model = None
     for ev in events:
@@ -597,15 +649,16 @@ def parse_openai(events):
         if t == "response.output_text.delta":
             yield {"delta": ev.get("delta", "")}
         elif t == "response.completed":
-            yield {"done": True}
+            yield from with_usage(openai_usage(ev.get("response")), {"done": True})
             return
         elif t == "response.failed":
             err = (ev.get("response") or {}).get("error") or {}
-            yield {"error": err.get("code") or "response_failed", "message": err.get("message", "")}
+            yield from with_usage(openai_usage(ev.get("response")),
+                                  {"error": err.get("code") or "response_failed", "message": err.get("message", "")})
             return
         elif t == "response.incomplete":
             det = (ev.get("response") or {}).get("incomplete_details") or {}
-            yield {"error": "incomplete", "message": det.get("reason", "")}
+            yield from with_usage(openai_usage(ev.get("response")), {"error": "incomplete", "message": det.get("reason", "")})
             return
         elif t == "error":
             err = ev.get("error") if isinstance(ev.get("error"), dict) else ev
@@ -634,13 +687,18 @@ def midstream_error(e):
 
 
 def parse_openrouter(events):
-    reason, model, reasoning = None, None, 0
+    reason, model, reasoning, usage = None, None, 0, None
     for ev in events:
         if "_comment" in ev:
             yield {"wait": True}
             continue
+        if isinstance(ev.get("usage"), dict):  # the last chunk, after finish_reason, with no choices
+            u = ev["usage"]
+            usage = usage_event(u.get("prompt_tokens"), u.get("completion_tokens"),
+                                (u.get("completion_tokens_details") or {}).get("reasoning_tokens"),
+                                (u.get("prompt_tokens_details") or {}).get("cached_tokens"), u.get("cost")) or usage
         if isinstance(ev.get("error"), dict):
-            yield midstream_error(ev["error"])
+            yield from with_usage(usage, midstream_error(ev["error"]))
             return
         if isinstance(ev.get("model"), str) and ev["model"] and ev["model"] != model:
             model = ev["model"]
@@ -657,18 +715,23 @@ def parse_openrouter(events):
         if isinstance(text, str) and text:
             yield {"delta": text}
         if ch.get("finish_reason") == "error" or isinstance(ch.get("error"), dict):
-            yield midstream_error(ch.get("error") or ev.get("error") or {})
+            yield from with_usage(usage, midstream_error(ch.get("error") or ev.get("error") or {}))
             return
         reason = ch.get("finish_reason") or reason
-    yield from finish(reason, ok=("stop", "tool_calls", "function_call"), cut=("length",))
+    end = finish(reason, ok=("stop", "tool_calls", "function_call"), cut=("length",))
+    yield from with_usage(usage, *end) if end else end
 
 
 def parse_anthropic(events):
-    stop = None
+    stop, counts = None, {}
     for ev in events:
         t = ev.get("type")
         if t == "message_start" and isinstance((ev.get("message") or {}).get("model"), str):
             yield {"model": ev["message"]["model"]}
+        # Counts start in message_start and are updated (output so far) by each message_delta.
+        u = (ev.get("message") or {}).get("usage") if t == "message_start" else ev.get("usage") if t == "message_delta" else None
+        if isinstance(u, dict):
+            counts.update({k: v for k, v in u.items() if _num(v)})
         if t == "content_block_delta":
             d = ev.get("delta") or {}
             if d.get("type") == "text_delta" and d.get("text"):
@@ -676,28 +739,41 @@ def parse_anthropic(events):
         elif t == "message_delta":
             stop = (ev.get("delta") or {}).get("stop_reason") or stop
         elif t == "message_stop":
-            yield from finish(stop or "end_turn", ok=("end_turn", "stop_sequence", "pause_turn"),
-                              cut=("max_tokens", "model_context_window_exceeded"))
+            yield from with_usage(anthropic_usage(counts), *finish(stop or "end_turn", ok=("end_turn", "stop_sequence", "pause_turn"),
+                                                                 cut=("max_tokens", "model_context_window_exceeded")))
             return
         elif t == "error":
             e = ev.get("error") or {}
-            yield stream_error(e.get("type") or "error", e.get("message", ""))
+            yield from with_usage(anthropic_usage(counts), stream_error(e.get("type") or "error", e.get("message", "")))
             return
 
 
+def anthropic_usage(c):
+    if "input_tokens" not in c and "output_tokens" not in c:
+        return None
+    inp = sum(c.get(k, 0) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+    return usage_event(inp, c.get("output_tokens", 0), None, c.get("cache_read_input_tokens"))
+
+
 def parse_gemini(events):
-    reason, model = None, None
+    reason, model, usage = None, None, None
     for ev in events:
         if isinstance(ev.get("modelVersion"), str) and ev["modelVersion"] and ev["modelVersion"] != model:
             model = ev["modelVersion"]
             yield {"model": model}
+        u = ev.get("usageMetadata")
+        if isinstance(u, dict):  # running totals; the last chunk's are final. Thinking is billed as output.
+            out = (u.get("candidatesTokenCount") or 0) + (u.get("thoughtsTokenCount") or 0) if (
+                _num(u.get("candidatesTokenCount")) or _num(u.get("thoughtsTokenCount"))) else None
+            usage = usage_event(u.get("promptTokenCount"), out, u.get("thoughtsTokenCount"),
+                                u.get("cachedContentTokenCount")) or usage
         if isinstance(ev.get("error"), dict):
             e = ev["error"]
-            yield stream_error(e.get("code") or e.get("status"), e.get("message", ""))
+            yield from with_usage(usage, stream_error(e.get("code") or e.get("status"), e.get("message", "")))
             return
         block = (ev.get("promptFeedback") or {}).get("blockReason")
         if block:
-            yield {"error": "blocked", "message": block}
+            yield from with_usage(usage, {"error": "blocked", "message": block})
             return
         cands = ev.get("candidates") or []
         if not cands:
@@ -708,7 +784,8 @@ def parse_gemini(events):
             if isinstance(part.get("text"), str) and part["text"]:
                 yield {"delta": part["text"]}
         reason = cands[0].get("finishReason") or reason
-    yield from finish(reason, ok=("STOP", "FINISH_REASON_UNSPECIFIED"), cut=("MAX_TOKENS",))
+    end = finish(reason, ok=("STOP", "FINISH_REASON_UNSPECIFIED"), cut=("MAX_TOKENS",))
+    yield from with_usage(usage, *end) if end else end
 
 
 PARSERS = {"chatgpt": parse_openai, "openai": parse_openai, "openrouter": parse_openrouter,
@@ -741,7 +818,7 @@ def build_request(provider, model, instructions, text, images, max_tokens=16000,
                 {"type": "image_url", "image_url": {"url": u, "detail": "low"}} for u in images]
         messages = ([{"role": "system", "content": instructions}] if instructions else []) + [
             {"role": "user", "content": content}]
-        body = {"model": model, "messages": messages, "stream": True}
+        body = {"model": model, "messages": messages, "stream": True, "usage": {"include": True}}  # token counts and cost in the last chunk
         if effort in REASONING_EFFORTS:
             body["reasoning"] = {"effort": effort}  # models without reasoning ignore it
         return OPENROUTER_API + "/chat/completions", body

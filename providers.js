@@ -140,6 +140,29 @@
     if (ok.includes(reason)) return [{ done: true }];
     return [{ error: 'blocked', message: String(reason) }];
   }
+  // {usage: {input, output[, reasoning, cached, cost]}}, or null when nothing was reported. Output
+  // counts include reasoning tokens; input counts include cached ones; cost is OpenRouter's, in USD.
+  // Every parser yields it just before its last event (the same as the server).
+  const isNum = v => typeof v === 'number' && Number.isFinite(v);
+  function usageEvent(inp, out, reasoning = null, cached = null, cost = null) {
+    if (!isNum(inp) && !isNum(out)) return null;
+    const u = { input: isNum(inp) ? Math.trunc(inp) : 0, output: isNum(out) ? Math.trunc(out) : 0 };
+    if (isNum(reasoning) && reasoning > 0) u.reasoning = Math.trunc(reasoning);
+    if (isNum(cached) && cached > 0) u.cached = Math.trunc(cached);
+    if (isNum(cost) && cost >= 0) u.cost = cost;
+    return { usage: u };
+  }
+  const withUsage = (usage, ...events) => (usage ? [usage, ...events] : events);
+  function openaiUsage(resp) {
+    const u = resp && typeof resp === 'object' ? resp.usage : null;
+    if (!u || typeof u !== 'object') return null;
+    return usageEvent(u.input_tokens, u.output_tokens, u.output_tokens_details?.reasoning_tokens, u.input_tokens_details?.cached_tokens);
+  }
+  function anthropicUsage(c) {
+    if (!('input_tokens' in c) && !('output_tokens' in c)) return null;
+    const inp = ['input_tokens', 'cache_creation_input_tokens', 'cache_read_input_tokens'].reduce((t, k) => t + (c[k] || 0), 0);
+    return usageEvent(inp, c.output_tokens || 0, null, c.cache_read_input_tokens);
+  }
   async function* parseOpenAI(events) {
     let model = null;
     for await (const ev of events) {
@@ -147,46 +170,60 @@
       const m = ev.response && typeof ev.response === 'object' ? ev.response.model : null;
       if (typeof m === 'string' && m && m !== model) { model = m; yield { model }; }
       if (t === 'response.output_text.delta') yield { delta: ev.delta ?? '' };
-      else if (t === 'response.completed') { yield { done: true }; return; }
-      else if (t === 'response.failed') { const err = ev.response?.error || {}; yield { error: err.code || 'response_failed', message: err.message || '' }; return; }
-      else if (t === 'response.incomplete') { const det = ev.response?.incomplete_details || {}; yield { error: 'incomplete', message: det.reason || '' }; return; }
+      else if (t === 'response.completed') { yield* withUsage(openaiUsage(ev.response), { done: true }); return; }
+      else if (t === 'response.failed') { const err = ev.response?.error || {}; yield* withUsage(openaiUsage(ev.response), { error: err.code || 'response_failed', message: err.message || '' }); return; }
+      else if (t === 'response.incomplete') { const det = ev.response?.incomplete_details || {}; yield* withUsage(openaiUsage(ev.response), { error: 'incomplete', message: det.reason || '' }); return; }
       else if (t === 'error') { const err = ev.error && typeof ev.error === 'object' ? ev.error : ev; yield { error: err.code || 'error', message: err.message || '' }; return; }
     }
   }
   async function* parseOpenRouter(events) {
-    let reason = null, model = null, reasoning = 0;
+    let reason = null, model = null, reasoning = 0, usage = null;
     for await (const ev of events) {
       if ('_comment' in ev) { yield { wait: true }; continue; }
-      if (ev.error && typeof ev.error === 'object') { yield midstreamError(ev.error); return; }
+      if (ev.usage && typeof ev.usage === 'object') { // the last chunk, after finish_reason, with no choices
+        const u = ev.usage;
+        usage = usageEvent(u.prompt_tokens, u.completion_tokens, u.completion_tokens_details?.reasoning_tokens, u.prompt_tokens_details?.cached_tokens, u.cost) || usage;
+      }
+      if (ev.error && typeof ev.error === 'object') { yield* withUsage(usage, midstreamError(ev.error)); return; }
       if (typeof ev.model === 'string' && ev.model && ev.model !== model) { model = ev.model; yield { model }; }
       const ch = (ev.choices || [])[0];
       if (!ch) continue;
       const delta = ch.delta || {};
       if ((typeof delta.reasoning === 'string' && delta.reasoning) || (delta.reasoning_details && delta.reasoning_details.length !== 0)) yield { reasoning: ++reasoning };
       if (typeof delta.content === 'string' && delta.content) yield { delta: delta.content };
-      if (ch.finish_reason === 'error' || (ch.error && typeof ch.error === 'object')) { yield midstreamError(ch.error || ev.error || {}); return; }
+      if (ch.finish_reason === 'error' || (ch.error && typeof ch.error === 'object')) { yield* withUsage(usage, midstreamError(ch.error || ev.error || {})); return; }
       reason = ch.finish_reason || reason;
     }
-    yield* finish(reason, ['stop', 'tool_calls', 'function_call'], ['length']);
+    const end = finish(reason, ['stop', 'tool_calls', 'function_call'], ['length']);
+    yield* end.length ? withUsage(usage, ...end) : end;
   }
   async function* parseAnthropic(events) {
     let stop = null;
+    const counts = {};
     for await (const ev of events) {
       const t = ev.type;
       if (t === 'message_start' && typeof ev.message?.model === 'string') yield { model: ev.message.model };
+      // Counts start in message_start and are updated (output so far) by each message_delta.
+      const u = t === 'message_start' ? ev.message?.usage : t === 'message_delta' ? ev.usage : null;
+      if (u && typeof u === 'object') for (const [k, v] of Object.entries(u)) if (isNum(v)) counts[k] = v;
       if (t === 'content_block_delta') { const d = ev.delta || {}; if (d.type === 'text_delta' && d.text) yield { delta: d.text }; }
       else if (t === 'message_delta') stop = ev.delta?.stop_reason || stop;
-      else if (t === 'message_stop') { yield* finish(stop || 'end_turn', ['end_turn', 'stop_sequence', 'pause_turn'], ['max_tokens', 'model_context_window_exceeded']); return; }
-      else if (t === 'error') { const e = ev.error || {}; yield streamError(e.type || 'error', e.message || ''); return; }
+      else if (t === 'message_stop') { yield* withUsage(anthropicUsage(counts), ...finish(stop || 'end_turn', ['end_turn', 'stop_sequence', 'pause_turn'], ['max_tokens', 'model_context_window_exceeded'])); return; }
+      else if (t === 'error') { const e = ev.error || {}; yield* withUsage(anthropicUsage(counts), streamError(e.type || 'error', e.message || '')); return; }
     }
   }
   async function* parseGemini(events) {
-    let reason = null, model = null;
+    let reason = null, model = null, usage = null;
     for await (const ev of events) {
       if (typeof ev.modelVersion === 'string' && ev.modelVersion && ev.modelVersion !== model) { model = ev.modelVersion; yield { model }; }
-      if (ev.error && typeof ev.error === 'object') { yield streamError(ev.error.code || ev.error.status, ev.error.message || ''); return; }
+      const u = ev.usageMetadata;
+      if (u && typeof u === 'object') { // running totals; the last chunk's are final. Thinking is billed as output.
+        const out = isNum(u.candidatesTokenCount) || isNum(u.thoughtsTokenCount) ? (u.candidatesTokenCount || 0) + (u.thoughtsTokenCount || 0) : null;
+        usage = usageEvent(u.promptTokenCount, out, u.thoughtsTokenCount, u.cachedContentTokenCount) || usage;
+      }
+      if (ev.error && typeof ev.error === 'object') { yield* withUsage(usage, streamError(ev.error.code || ev.error.status, ev.error.message || '')); return; }
       const block = ev.promptFeedback?.blockReason;
-      if (block) { yield { error: 'blocked', message: block }; return; }
+      if (block) { yield* withUsage(usage, { error: 'blocked', message: block }); return; }
       const cand = (ev.candidates || [])[0];
       if (!cand) continue;
       for (const part of cand.content?.parts || []) {
@@ -195,7 +232,8 @@
       }
       reason = cand.finishReason || reason;
     }
-    yield* finish(reason, ['STOP', 'FINISH_REASON_UNSPECIFIED'], ['MAX_TOKENS']);
+    const end = finish(reason, ['STOP', 'FINISH_REASON_UNSPECIFIED'], ['MAX_TOKENS']);
+    yield* end.length ? withUsage(usage, ...end) : end;
   }
   const PARSERS = { openai: parseOpenAI, openrouter: parseOpenRouter, anthropic: parseAnthropic, gemini: parseGemini };
 
@@ -209,7 +247,7 @@
     if (provider === 'openrouter') {
       const content = images.length ? [{ type: 'text', text }, ...images.map(u => ({ type: 'image_url', image_url: { url: u, detail: 'low' } }))] : text;
       const messages = [...(instructions ? [{ role: 'system', content: instructions }] : []), { role: 'user', content }];
-      const body = { model, messages, stream: true };
+      const body = { model, messages, stream: true, usage: { include: true } }; // token counts and cost in the last chunk
       if (REASONING_EFFORTS.includes(effort)) body.reasoning = { effort }; // models without reasoning ignore it
       return [OPENROUTER_API + '/chat/completions', body];
     }
@@ -264,6 +302,14 @@
   const versionOf = (text, pattern) => { const m = String(text).match(pattern); return m ? Number.parseFloat(m[1]) : 0; };
   const maxBy = (arr, key, dflt) => arr.length ? arr.reduce((a, b) => (key(b) > key(a) ? b : a)) : dflt;
 
+  // USD per input and output token from OpenRouter's model list, or null (unknown, or variable,
+  // which OpenRouter lists as a negative price).
+  function openrouterPrice(pricing) {
+    const toNum = v => (typeof v === 'string' && v.trim() !== '' ? Number(v) : typeof v === 'number' ? v : NaN);
+    const inp = toNum(pricing?.prompt), out = toNum(pricing?.completion);
+    if (!(inp >= 0 && inp < 1 && out >= 0 && out < 1)) return null;
+    return { input: inp, output: out };
+  }
   async function openrouterCredits(key, f = fetch) {
     try {
       const d = (await getJson('openrouter', OPENROUTER_API + '/credits', key, f)).data || {};
@@ -318,10 +364,15 @@
       for (const m of data) {
         const arch = m.architecture || {};
         if (m.id && (arch.output_modalities || ['text']).includes('text'))
-          models.push({ slug: m.id, name: m.name || m.id, images: (arch.input_modalities || []).includes('image') });
+        {
+          const entry = { slug: m.id, name: m.name || m.id, images: (arch.input_modalities || []).includes('image') };
+          const price = openrouterPrice(m.pricing);
+          if (price) entry.price = price;
+          models.push(entry);
+        }
       }
       models.sort((a, b) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
-      if (!models.some(m => m.slug === OPENROUTER_FREE)) models.unshift({ slug: OPENROUTER_FREE, name: 'Free models (OpenRouter picks)', images: true });
+      if (!models.some(m => m.slug === OPENROUTER_FREE)) models.unshift({ slug: OPENROUTER_FREE, name: 'Free models (OpenRouter picks)', images: true, price: { input: 0, output: 0 } });
       const credits = await openrouterCredits(key, f);
       let dflt;
       if (credits !== null && credits <= 0) dflt = OPENROUTER_FREE;
