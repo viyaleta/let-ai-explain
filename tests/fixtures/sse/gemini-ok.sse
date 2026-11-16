@@ -1,0 +1,4 @@
+data: {"modelVersion": "gemini-3-flash", "candidates": [{"content": {"parts": [{"text": "thinking", "thought": true}, {"text": "Hi"}]}}]}
+
+data: {"modelVersion": "gemini-3-flash", "candidates": [{"content": {"parts": [{"text": " there"}]}, "finishReason": "STOP"}]}
+

@@ -145,11 +145,14 @@ Every explanation starts with *why* the idea matters, builds intuition from one 
 
 ## Privacy
 
+The full privacy notice, for the website and the desktop app, is in [PRIVACY.md](PRIVACY.md) (also under **Privacy** at the bottom of the app).
+
 - **Everything runs on your computer.** The app is a small local server. Your requests go only to the AI provider you connected and to the websites you ask it to read.
 - **Everything is saved in one folder on your computer**, readable only by your user account: `~/.config/let-ai-explain/` on macOS and Linux, `%APPDATA%\let-ai-explain\` on Windows.
 - **Your sign-in and API keys** are kept there and sent only to the provider they belong to, never to the browser page or anywhere else.
 - **History is saved on this computer** in the same folder (`history/`), shared by the browser and the desktop app. It keeps your 100 most recent explanations and deletes ones older than 30 days. Clear it anytime from the History panel. Your theme and level choices are saved there too (`prefs.json`).
 - **The app can't see your chat history** with ChatGPT or any other service.
+- **The website uses Vercel Web Analytics for anonymous page-view counts (no cookies). The desktop app doesn't.** Only the page address is counted (without anything after `?` or `#`); nothing about your explanations, keys or what you type is sent.
 - **Keep spending in check:**
   - ChatGPT: [ChatGPT settings → Usage](https://chatgpt.com/settings/usage)
   - OpenRouter: set a credit limit on the key at [openrouter.ai/settings/keys](https://openrouter.ai/settings/keys)
@@ -208,6 +211,10 @@ It keeps your keys and sign-in on your own computer, and it's how OpenAI allows 
 Desktop app: download the latest version from the [Releases page](https://github.com/viyaleta/let-ai-explain/releases/latest) and install it over the old one. From source: run `git pull` in the folder, or download the ZIP again. Your connection is kept either way.
 
 ---
+
+## Support
+
+Questions or feedback: email [info@letaiexplain.com](mailto:info@letaiexplain.com?subject=Let%20AI%20Explain%20support). For bug reports, please [open an issue on GitHub](https://github.com/viyaleta/let-ai-explain/issues).
 
 ## License
 

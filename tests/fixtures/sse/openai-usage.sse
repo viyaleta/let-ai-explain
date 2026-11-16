@@ -1,0 +1,7 @@
+event: response.created
+data: {"type": "response.created", "response": {"model": "gpt-5.2"}}
+
+data: {"type": "response.output_text.delta", "delta": "Hi"}
+
+data: {"type": "response.completed", "response": {"model": "gpt-5.2", "usage": {"input_tokens": 6120, "input_tokens_details": {"cached_tokens": 2048}, "output_tokens": 3210, "output_tokens_details": {"reasoning_tokens": 1024}, "total_tokens": 9330}}}
+

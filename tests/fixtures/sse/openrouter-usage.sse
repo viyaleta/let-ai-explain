@@ -1,0 +1,10 @@
+: OPENROUTER PROCESSING
+
+data: {"model": "anthropic/claude-sonnet-5.5", "choices": [{"delta": {"content": "Hello"}}]}
+
+data: {"model": "anthropic/claude-sonnet-5.5", "choices": [{"delta": {"content": ""}, "finish_reason": "stop"}]}
+
+data: {"model": "anthropic/claude-sonnet-5.5", "choices": [], "usage": {"prompt_tokens": 6100, "completion_tokens": 3200, "total_tokens": 9300, "cost": 0.0663, "prompt_tokens_details": {"cached_tokens": 0}, "completion_tokens_details": {"reasoning_tokens": 512}}}
+
+data: [DONE]
+

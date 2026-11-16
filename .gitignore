@@ -6,3 +6,6 @@ dist/
 out/
 build-env/
 .DS_Store
+
+# Vercel CLI project link and local build output
+.vercel/

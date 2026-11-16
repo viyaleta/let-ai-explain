@@ -16,12 +16,18 @@ NAME = "Let AI Explain"
 VERSION = os.environ.get("APP_VERSION", "0.0.0")
 BUNDLE_ID = "io.github.viyaleta.let-ai-explain"
 
+# The version the About dialog shows (the server reads version.txt next to index.html).
+VERSION_TXT = Path(workpath) / "version.txt"
+VERSION_TXT.parent.mkdir(parents=True, exist_ok=True)
+VERSION_TXT.write_text(VERSION + "\n", encoding="utf-8")
+
 a = Analysis(
     [str(ROOT / "desktop.py")],
     pathex=[str(ROOT)],
     datas=[(str(ROOT / "index.html"), "."), (str(ROOT / "manifest.webmanifest"), "."),
-           (str(ROOT / "sw.js"), "."), (str(ROOT / "icons"), "icons")],
-    hiddenimports=["let_ai_explain"],
+           (str(ROOT / "sw.js"), "."), (str(ROOT / "providers.js"), "."), (str(VERSION_TXT), "."),
+           (str(ROOT / "icons"), "icons")],
+    hiddenimports=["let_ai_explain", "lae_reader"],
     excludes=["tkinter", "unittest", "pydoc_data"],
     noarchive=False,
 )

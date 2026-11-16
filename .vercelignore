@@ -1,0 +1,9 @@
+# The hosted site needs only the page, its static files, api/ and lae_reader.py.
+let_ai_explain.py
+desktop.py
+packaging/
+tests/
+.github/
+__pycache__/
+*.pyc
+README.md

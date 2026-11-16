@@ -1,0 +1,4 @@
+data: {"modelVersion": "gemini-3-flash", "candidates": [{"content": {"parts": [{"text": "Hi"}]}}], "usageMetadata": {"promptTokenCount": 5000, "candidatesTokenCount": 1, "totalTokenCount": 5001}}
+
+data: {"modelVersion": "gemini-3-flash", "candidates": [{"content": {"parts": [{"text": " there"}]}, "finishReason": "STOP"}], "usageMetadata": {"promptTokenCount": 5000, "candidatesTokenCount": 420, "thoughtsTokenCount": 900, "cachedContentTokenCount": 1000, "totalTokenCount": 6320}}
+

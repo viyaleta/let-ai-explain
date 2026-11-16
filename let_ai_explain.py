@@ -9,13 +9,12 @@ installed (pip install "pyjwt[crypto]"), the ID token signature is also checked.
 """
 import base64
 import hashlib
-import ipaddress
 import json
 import os
 import re
 import secrets
 import shutil
-import socket
+import subprocess
 import sys
 import threading
 import time
@@ -24,10 +23,10 @@ import urllib.parse
 import urllib.request
 import uuid
 import webbrowser
-from html import unescape as html_unescape
-from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+from lae_reader import ReaderError, check_url, read_page  # page reader, shared with the hosted site
 
 APP_NAME = "Let AI Explain"  # sent as agent_name_hint; only affects new registrations
 AUTH_BASE = "https://auth.openai.com"
@@ -44,6 +43,7 @@ PREFERRED_PORT = 1455
 # Files the page needs besides index.html (the "Install app" manifest, service worker and icons).
 STATIC = {"/manifest.webmanifest": ("manifest.webmanifest", "application/manifest+json"),
           "/sw.js": ("sw.js", "text/javascript; charset=utf-8"),
+          "/providers.js": ("providers.js", "text/javascript; charset=utf-8"),
           "/icons/icon-192.png": ("icons/icon-192.png", "image/png"),
           "/icons/icon-512.png": ("icons/icon-512.png", "image/png"),
           "/icons/icon-maskable-512.png": ("icons/icon-maskable-512.png", "image/png")}
@@ -98,6 +98,28 @@ LOCK = threading.Lock()  # guards credential reads/writes and refresh
 
 
 # ---------------------------------------------------------------- storage
+def app_version():
+    """The release version (version.txt, written by the desktop build), else `git describe` for a
+    copy run from source, else None."""
+    try:
+        v = (ROOT / "version.txt").read_text(encoding="utf-8").strip()
+        if v and v != "0.0.0":
+            return v
+    except OSError:
+        pass
+    if getattr(sys, "frozen", False):
+        return None  # a packaged app without a version file (a local test build)
+    try:
+        out = subprocess.run(["git", "describe", "--tags", "--always"], cwd=ROOT, capture_output=True,
+                             text=True, timeout=2).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.removeprefix("v") or None
+
+
+VERSION = app_version()
+
+
 def read_json(path):
     try:
         return json.loads(path.read_text())
@@ -211,14 +233,8 @@ def b64url_decode(s):
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 
-class AppError(Exception):
-    def __init__(self, code, message="", status=400):
-        super().__init__(message or code)
-        self.code, self.message, self.status = code, message, status
-        self.retryable = False  # a passing upstream failure: the page may try again (free router)
-
-    def json(self):
-        return {"error": self.code, "message": self.message, **({"retryable": True} if self.retryable else {})}
+class AppError(ReaderError):
+    """An error the page shows. retryable marks a passing upstream failure (the free router)."""
 
 
 def post_form(url, fields):
@@ -410,6 +426,9 @@ def map_provider_error(provider, status, raw, images=False):
         return AppError("images_unsupported", msg or "This model doesn't accept images.", 400)
     if status == 402 or re.search(r"insufficient[_ ](credits|quota|balance)|credit balance is too low|out of credits", blob):
         return AppError("out_of_credits", msg, 402)
+    # Google: a key limited to other websites, IP addresses, apps or APIs (API_KEY_*_BLOCKED).
+    if provider == "gemini" and re.search(r"api_key_[a-z_]+_blocked|requests from referer", blob):
+        return AppError("key_restricted", msg or "Your Google API key is restricted.", 403)
     if status == 401 or re.search(r"api_key_invalid|api key not valid|invalid x-api-key|invalid api key|incorrect api key", blob):
         return AppError("invalid_key", msg or f"{name} didn't accept the key.", 401)
     if status == 403:
@@ -510,11 +529,16 @@ def list_models(provider, key):
         for m in data:
             arch = m.get("architecture") or {}
             if m.get("id") and "text" in (arch.get("output_modalities") or ["text"]):
-                models.append({"slug": m["id"], "name": m.get("name") or m["id"],
-                               "images": "image" in (arch.get("input_modalities") or [])})
+                entry = {"slug": m["id"], "name": m.get("name") or m["id"],
+                         "images": "image" in (arch.get("input_modalities") or [])}
+                price = openrouter_price(m.get("pricing"))
+                if price:
+                    entry["price"] = price
+                models.append(entry)
         models.sort(key=lambda m: m["name"].lower())
         if not any(m["slug"] == OPENROUTER_FREE for m in models):
-            models.insert(0, {"slug": OPENROUTER_FREE, "name": "Free models (OpenRouter picks)", "images": True})
+            models.insert(0, {"slug": OPENROUTER_FREE, "name": "Free models (OpenRouter picks)", "images": True,
+                              "price": {"input": 0.0, "output": 0.0}})
         credits = openrouter_credits(h)
         if credits is not None and credits <= 0:
             default = OPENROUTER_FREE
@@ -523,6 +547,18 @@ def list_models(provider, key):
             default = max(flash, key=lambda s: version_of(s, r"gemini-(\d+(?:\.\d+)?)"), default=OPENROUTER_FREE)
         return models, default, {"credits": credits}
     raise AppError("bad_provider", "Unknown provider.")
+
+
+def openrouter_price(pricing):
+    """USD per input and output token from OpenRouter's model list, or None (unknown or variable,
+    which OpenRouter lists as a negative price)."""
+    try:
+        inp, out = float((pricing or {})["prompt"]), float((pricing or {})["completion"])
+    except (KeyError, TypeError, ValueError):
+        return None
+    if not (0 <= inp < 1 and 0 <= out < 1):  # finite, not negative, and per token
+        return None
+    return {"input": inp, "output": out}
 
 
 def openrouter_credits(headers):
@@ -547,6 +583,8 @@ def openrouter_credits(headers):
 # ndjson events: {"delta": text}, then {"done": true} or {"error": code, "message": ...}.
 # OpenRouter also yields progress: {"wait": true} while queued, {"reasoning": n} (a count of
 # reasoning chunks; their text isn't sent) and {"model": slug} for the model that answers.
+# Every parser yields {"usage": {...}} (see usage_event) just before its last event when the
+# provider reported token counts.
 # A stream that ends without either is reported as "interrupted" by the caller.
 def sse_events(lines):
     for raw in lines:
@@ -567,6 +605,39 @@ def sse_events(lines):
             yield ev
 
 
+def _num(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def usage_event(inp, out, reasoning=None, cached=None, cost=None):
+    """{"usage": {"input", "output"[, "reasoning", "cached", "cost"]}}, or None when nothing was
+    reported. Output counts include reasoning tokens; input counts include cached ones. cost is in
+    USD, as OpenRouter reports it."""
+    if not _num(inp) and not _num(out):
+        return None
+    u = {"input": int(inp) if _num(inp) else 0, "output": int(out) if _num(out) else 0}
+    if _num(reasoning) and reasoning > 0:
+        u["reasoning"] = int(reasoning)
+    if _num(cached) and cached > 0:
+        u["cached"] = int(cached)
+    if _num(cost) and cost >= 0:
+        u["cost"] = float(cost)
+    return {"usage": u}
+
+
+def with_usage(usage, *events):
+    return ([usage] if usage else []) + list(events)
+
+
+def openai_usage(resp):
+    u = (resp or {}).get("usage") if isinstance(resp, dict) else None
+    if not isinstance(u, dict):
+        return None
+    return usage_event(u.get("input_tokens"), u.get("output_tokens"),
+                       (u.get("output_tokens_details") or {}).get("reasoning_tokens"),
+                       (u.get("input_tokens_details") or {}).get("cached_tokens"))
+
+
 def parse_openai(events):
     model = None
     for ev in events:
@@ -578,15 +649,16 @@ def parse_openai(events):
         if t == "response.output_text.delta":
             yield {"delta": ev.get("delta", "")}
         elif t == "response.completed":
-            yield {"done": True}
+            yield from with_usage(openai_usage(ev.get("response")), {"done": True})
             return
         elif t == "response.failed":
             err = (ev.get("response") or {}).get("error") or {}
-            yield {"error": err.get("code") or "response_failed", "message": err.get("message", "")}
+            yield from with_usage(openai_usage(ev.get("response")),
+                                  {"error": err.get("code") or "response_failed", "message": err.get("message", "")})
             return
         elif t == "response.incomplete":
             det = (ev.get("response") or {}).get("incomplete_details") or {}
-            yield {"error": "incomplete", "message": det.get("reason", "")}
+            yield from with_usage(openai_usage(ev.get("response")), {"error": "incomplete", "message": det.get("reason", "")})
             return
         elif t == "error":
             err = ev.get("error") if isinstance(ev.get("error"), dict) else ev
@@ -615,13 +687,18 @@ def midstream_error(e):
 
 
 def parse_openrouter(events):
-    reason, model, reasoning = None, None, 0
+    reason, model, reasoning, usage = None, None, 0, None
     for ev in events:
         if "_comment" in ev:
             yield {"wait": True}
             continue
+        if isinstance(ev.get("usage"), dict):  # the last chunk, after finish_reason, with no choices
+            u = ev["usage"]
+            usage = usage_event(u.get("prompt_tokens"), u.get("completion_tokens"),
+                                (u.get("completion_tokens_details") or {}).get("reasoning_tokens"),
+                                (u.get("prompt_tokens_details") or {}).get("cached_tokens"), u.get("cost")) or usage
         if isinstance(ev.get("error"), dict):
-            yield midstream_error(ev["error"])
+            yield from with_usage(usage, midstream_error(ev["error"]))
             return
         if isinstance(ev.get("model"), str) and ev["model"] and ev["model"] != model:
             model = ev["model"]
@@ -638,18 +715,23 @@ def parse_openrouter(events):
         if isinstance(text, str) and text:
             yield {"delta": text}
         if ch.get("finish_reason") == "error" or isinstance(ch.get("error"), dict):
-            yield midstream_error(ch.get("error") or ev.get("error") or {})
+            yield from with_usage(usage, midstream_error(ch.get("error") or ev.get("error") or {}))
             return
         reason = ch.get("finish_reason") or reason
-    yield from finish(reason, ok=("stop", "tool_calls", "function_call"), cut=("length",))
+    end = finish(reason, ok=("stop", "tool_calls", "function_call"), cut=("length",))
+    yield from with_usage(usage, *end) if end else end
 
 
 def parse_anthropic(events):
-    stop = None
+    stop, counts = None, {}
     for ev in events:
         t = ev.get("type")
         if t == "message_start" and isinstance((ev.get("message") or {}).get("model"), str):
             yield {"model": ev["message"]["model"]}
+        # Counts start in message_start and are updated (output so far) by each message_delta.
+        u = (ev.get("message") or {}).get("usage") if t == "message_start" else ev.get("usage") if t == "message_delta" else None
+        if isinstance(u, dict):
+            counts.update({k: v for k, v in u.items() if _num(v)})
         if t == "content_block_delta":
             d = ev.get("delta") or {}
             if d.get("type") == "text_delta" and d.get("text"):
@@ -657,28 +739,41 @@ def parse_anthropic(events):
         elif t == "message_delta":
             stop = (ev.get("delta") or {}).get("stop_reason") or stop
         elif t == "message_stop":
-            yield from finish(stop or "end_turn", ok=("end_turn", "stop_sequence", "pause_turn"),
-                              cut=("max_tokens", "model_context_window_exceeded"))
+            yield from with_usage(anthropic_usage(counts), *finish(stop or "end_turn", ok=("end_turn", "stop_sequence", "pause_turn"),
+                                                                 cut=("max_tokens", "model_context_window_exceeded")))
             return
         elif t == "error":
             e = ev.get("error") or {}
-            yield stream_error(e.get("type") or "error", e.get("message", ""))
+            yield from with_usage(anthropic_usage(counts), stream_error(e.get("type") or "error", e.get("message", "")))
             return
 
 
+def anthropic_usage(c):
+    if "input_tokens" not in c and "output_tokens" not in c:
+        return None
+    inp = sum(c.get(k, 0) for k in ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens"))
+    return usage_event(inp, c.get("output_tokens", 0), None, c.get("cache_read_input_tokens"))
+
+
 def parse_gemini(events):
-    reason, model = None, None
+    reason, model, usage = None, None, None
     for ev in events:
         if isinstance(ev.get("modelVersion"), str) and ev["modelVersion"] and ev["modelVersion"] != model:
             model = ev["modelVersion"]
             yield {"model": model}
+        u = ev.get("usageMetadata")
+        if isinstance(u, dict):  # running totals; the last chunk's are final. Thinking is billed as output.
+            out = (u.get("candidatesTokenCount") or 0) + (u.get("thoughtsTokenCount") or 0) if (
+                _num(u.get("candidatesTokenCount")) or _num(u.get("thoughtsTokenCount"))) else None
+            usage = usage_event(u.get("promptTokenCount"), out, u.get("thoughtsTokenCount"),
+                                u.get("cachedContentTokenCount")) or usage
         if isinstance(ev.get("error"), dict):
             e = ev["error"]
-            yield stream_error(e.get("code") or e.get("status"), e.get("message", ""))
+            yield from with_usage(usage, stream_error(e.get("code") or e.get("status"), e.get("message", "")))
             return
         block = (ev.get("promptFeedback") or {}).get("blockReason")
         if block:
-            yield {"error": "blocked", "message": block}
+            yield from with_usage(usage, {"error": "blocked", "message": block})
             return
         cands = ev.get("candidates") or []
         if not cands:
@@ -689,7 +784,8 @@ def parse_gemini(events):
             if isinstance(part.get("text"), str) and part["text"]:
                 yield {"delta": part["text"]}
         reason = cands[0].get("finishReason") or reason
-    yield from finish(reason, ok=("STOP", "FINISH_REASON_UNSPECIFIED"), cut=("MAX_TOKENS",))
+    end = finish(reason, ok=("STOP", "FINISH_REASON_UNSPECIFIED"), cut=("MAX_TOKENS",))
+    yield from with_usage(usage, *end) if end else end
 
 
 PARSERS = {"chatgpt": parse_openai, "openai": parse_openai, "openrouter": parse_openrouter,
@@ -722,7 +818,7 @@ def build_request(provider, model, instructions, text, images, max_tokens=16000,
                 {"type": "image_url", "image_url": {"url": u, "detail": "low"}} for u in images]
         messages = ([{"role": "system", "content": instructions}] if instructions else []) + [
             {"role": "user", "content": content}]
-        body = {"model": model, "messages": messages, "stream": True}
+        body = {"model": model, "messages": messages, "stream": True, "usage": {"include": True}}  # token counts and cost in the last chunk
         if effort in REASONING_EFFORTS:
             body["reasoning"] = {"effort": effort}  # models without reasoning ignore it
         return OPENROUTER_API + "/chat/completions", body
@@ -742,177 +838,6 @@ def build_request(provider, model, instructions, text, images, max_tokens=16000,
             body["systemInstruction"] = {"parts": [{"text": instructions}]}
         return f"{GEMINI_API}/models/{urllib.parse.quote(model, safe='')}:streamGenerateContent?alt=sse", body
     raise AppError("bad_provider", "Unknown provider.")
-
-
-# ---------------------------------------------------------------- page reader
-class TextExtractor(HTMLParser):
-    SKIP = {"script", "style", "noscript", "svg", "nav", "footer", "aside", "form", "button",
-            "iframe", "template", "select"}
-    BLOCK = {"p", "div", "section", "article", "br", "tr", "blockquote", "pre", "figcaption",
-             "dd", "dt", "table", "ul", "ol", "figure", "main"}
-
-    def __init__(self, base):
-        super().__init__(convert_charrefs=True)
-        self.base, self.parts, self.images = base, [], []
-        self.skip = self.math = 0
-        self.title, self.in_title, self.caption = "", False, None
-
-    def handle_starttag(self, tag, attrs):
-        a = dict(attrs)
-        if self.math:
-            self.math += tag == "math"
-            return
-        if tag in self.SKIP:
-            self.skip += 1
-            return
-        if self.skip:
-            return
-        if tag == "title":
-            self.in_title = True
-        elif tag == "math":
-            alt = (a.get("alttext") or "").strip()
-            if alt:
-                self.parts.append(f"\n$${alt}$$\n" if a.get("display") == "block" else f" ${alt}$ ")
-            self.math = 1
-        elif tag in ("h1", "h2", "h3", "h4"):
-            self.parts.append("\n\n" + "#" * int(tag[1]) + " ")
-        elif tag == "li":
-            self.parts.append("\n- ")
-        elif tag in self.BLOCK:
-            self.parts.append("\n")
-        if tag == "img" and len(self.images) < 10:
-            src = urllib.parse.urljoin(self.base, a.get("src") or "")
-            alt = (a.get("alt") or "").strip()
-            w = a.get("width") or ""
-            small = w.isdigit() and int(w) < 120
-            if src.startswith("https://") and not small and not re.search(r"logo|icon|sprite|avatar|badge|pixel", src, re.I):
-                self.images.append({"src": src, "caption": alt[:160]})
-
-    def handle_endtag(self, tag):
-        if self.math:
-            self.math -= tag == "math"
-            return
-        if tag in self.SKIP:
-            self.skip = max(0, self.skip - 1)
-            return
-        if tag == "title":
-            self.in_title = False
-        elif tag in self.BLOCK or tag in ("h1", "h2", "h3", "h4", "li"):
-            self.parts.append("\n")
-
-    def handle_data(self, data):
-        if self.math or self.skip:
-            return
-        if self.in_title:
-            self.title += data
-        else:
-            self.parts.append(data)
-
-    def text(self):
-        raw = "".join(self.parts)
-        lines = [re.sub(r"[ \t\u00a0]+", " ", ln).strip() for ln in raw.splitlines()]
-        out = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
-        return out
-
-
-def public_url(url):
-    p = urllib.parse.urlparse(url)
-    if p.scheme not in ("http", "https") or not p.hostname:
-        return False
-    try:
-        infos = socket.getaddrinfo(p.hostname, None)
-    except socket.gaierror:
-        return False
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0].split("%")[0])
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-            return False
-    return True
-
-
-def http_get(url, limit=6_000_000):
-    req = urllib.request.Request(url, headers={
-        "User-Agent": "Mozilla/5.0 (compatible; Let AI Explain local reader)",
-        "Accept": "text/html,application/xhtml+xml;q=0.9,text/plain;q=0.8,*/*;q=0.3"})
-    with urllib.request.urlopen(req, timeout=25) as r:
-        body = r.read(limit)
-        return r.geturl(), r.headers.get("Content-Type", ""), body, r.headers.get_content_charset() or "utf-8"
-
-
-def read_page(url):
-    if not public_url(url):
-        raise AppError("bad_url", "That link can't be read.")
-    candidates = [url]
-    m = re.match(r"^https?://(?:www\.)?arxiv\.org/(?:abs|pdf|html)/([^?#]+?)(?:\.pdf)?/?$", url)
-    if m:  # arXiv: the HTML rendering has full text and figures; fall back to the abstract page
-        candidates = [f"https://arxiv.org/html/{m.group(1)}", f"https://arxiv.org/abs/{m.group(1)}"]
-    last = None
-    for cand in candidates:
-        try:
-            final, ctype, body, charset = http_get(cand)
-        except (urllib.error.URLError, OSError) as e:
-            last = e
-            continue
-        if not public_url(final):
-            raise AppError("bad_url", "That link redirected somewhere that can't be read.")
-        if "pdf" in ctype:
-            last = AppError("unsupported_type", "PDF files can't be read yet. Paste the text instead.")
-            continue
-        html = body.decode(charset, "replace")
-        if "text/plain" in ctype:
-            return {"url": final, "title": "", "text": html[:60000], "images": []}
-        ex = TextExtractor(final)
-        ex.feed(html)
-        text = ex.text()
-        if len(text) < 200:
-            last = AppError("empty_page", "That page had almost no readable text. It may need a browser to load.")
-            continue
-        return {"url": final, "title": ex.title.strip(), "text": text[:60000], "images": ex.images[:8]}
-    if isinstance(last, AppError):
-        raise last
-    raise AppError("fetch_failed", f"Couldn't load that page{': ' + str(getattr(last, 'reason', last)) if last else ''}.", 502)
-
-
-class PublicRedirects(urllib.request.HTTPRedirectHandler):
-    """Follow redirects only while they stay on public hosts."""
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if not public_url(newurl):
-            raise AppError("bad_url", "That link redirected somewhere that can't be checked.")
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
-CHECK_OPENER = urllib.request.build_opener(PublicRedirects)
-
-
-def check_url(url):
-    """Does a cited web page exist? Returns its status, final URL and <title> (reads at most ~1MB)."""
-    if not public_url(url):
-        raise AppError("bad_url", "That link can't be checked.")
-    req = urllib.request.Request(url, headers={
-        "User-Agent": "Mozilla/5.0 (compatible; Let AI Explain reference check)",
-        "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5"})
-    try:
-        with CHECK_OPENER.open(req, timeout=10) as r:
-            final, status = r.geturl(), r.status
-            ctype = r.headers.get("Content-Type", "")
-            charset = r.headers.get_content_charset() or "utf-8"
-            body = r.read(1_000_000)
-    except urllib.error.HTTPError as e:
-        return {"ok": False, "status": e.code, "final_url": e.geturl() or url, "title": ""}
-    except (urllib.error.URLError, OSError, ValueError) as e:
-        return {"ok": False, "status": 0, "final_url": url, "title": "",
-                "message": str(getattr(e, "reason", e))[:200]}
-    if not public_url(final):
-        raise AppError("bad_url", "That link redirected somewhere that can't be checked.")
-    title = ""
-    m = re.search(rb"<title[^>]*>(.*?)</title>", body, re.I | re.S) if "html" in ctype or not ctype else None
-    if m:
-        try:
-            raw = m.group(1).decode(charset, "replace")
-        except LookupError:
-            raw = m.group(1).decode("utf-8", "replace")
-        title = html_unescape(re.sub(r"\s+", " ", raw)).strip()[:300]
-    return {"ok": status == 200, "status": status, "final_url": final, "title": title}
 
 
 # ---------------------------------------------------------------- HTTP server
@@ -995,7 +920,7 @@ class Handler(BaseHTTPRequestHandler):
             if not self.api_ok():
                 return self.send_json(403, {"error": "forbidden"})
             if url.path == "/api/config":  # the page runs in local mode only when this says so
-                return self.send_json(200, {"mode": "local"})
+                return self.send_json(200, {"mode": "local", "version": VERSION})
             if url.path == "/api/session":
                 return self.api_session()
             if url.path == "/api/history":
@@ -1016,7 +941,7 @@ class Handler(BaseHTTPRequestHandler):
                 target = (urllib.parse.parse_qs(url.query).get("url") or [""])[0]
                 return self.send_json(200, check_url(target))
             self.send_json(404, {"error": "not_found"})
-        except AppError as e:
+        except ReaderError as e:
             self.send_json(e.status, e.json())
         except Exception as e:
             self.send_json(502, {"error": "server_error", "message": f"{type(e).__name__}: {e}"})
@@ -1039,7 +964,7 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/api/desktop/") and DESKTOP is not None:
                 return self.api_desktop(path.rsplit("/", 1)[1], self.read_body())
             self.send_json(404, {"error": "not_found"})
-        except AppError as e:
+        except ReaderError as e:
             self.send_json(e.status, e.json())
         except Exception as e:
             self.send_json(502, {"error": "server_error", "message": f"{type(e).__name__}: {e}"})
@@ -1068,7 +993,7 @@ class Handler(BaseHTTPRequestHandler):
                     write_private(PREFS_FILE, prefs)
                 return self.send_json(200, prefs)
             self.send_json(404, {"error": "not_found"})
-        except AppError as e:
+        except ReaderError as e:
             self.send_json(e.status, e.json())
         except Exception as e:
             self.send_json(500, {"error": "server_error", "message": f"{type(e).__name__}: {e}"})
@@ -1088,7 +1013,7 @@ class Handler(BaseHTTPRequestHandler):
                     history_path(path[len("/api/history/"):]).unlink(missing_ok=True)
                 return self.send_json(200, {"sessions": history_list()})
             self.send_json(404, {"error": "not_found"})
-        except AppError as e:
+        except ReaderError as e:
             self.send_json(e.status, e.json())
         except Exception as e:
             self.send_json(500, {"error": "server_error", "message": f"{type(e).__name__}: {e}"})
@@ -1337,6 +1262,8 @@ h1{{font-size:1.4rem;margin:0 0 .5rem}}p{{margin:0;opacity:.75}}</style></head>
         try:
             models, default, _ = list_models(provider, key)  # the key works if it can list models
         except AppError as e:
+            if e.code == "key_restricted":
+                raise
             if e.code in ("invalid_key", "model_not_found") or e.status in (400, 401, 403):
                 raise AppError("invalid_key", f"{PROVIDERS[provider]['name']} didn't accept that key.", 400)
             raise

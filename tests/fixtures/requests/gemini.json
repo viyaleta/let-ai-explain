@@ -1,0 +1,21 @@
+{
+  "_about": "The exact requests the app sends to Gemini, in local and hosted mode alike. The key goes only in the x-goog-api-key header (never ?key=), the same for the key check (model list) and for answers.",
+  "key": "test-key",
+  "models": {
+    "method": "GET",
+    "url": "https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000",
+    "headers": { "Accept": "application/json", "x-goog-api-key": "test-key" }
+  },
+  "answer": {
+    "method": "POST",
+    "model": "gemini-3-flash",
+    "instructions": "sys",
+    "input": "hi",
+    "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash:streamGenerateContent?alt=sse",
+    "headers": { "x-goog-api-key": "test-key", "Content-Type": "application/json", "Accept": "text/event-stream" },
+    "body": {
+      "contents": [{ "role": "user", "parts": [{ "text": "hi" }] }],
+      "systemInstruction": { "parts": [{ "text": "sys" }] }
+    }
+  }
+}
