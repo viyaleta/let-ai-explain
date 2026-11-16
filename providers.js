@@ -46,7 +46,7 @@
 
   function keyHeaders(provider, key) {
     if (provider === 'anthropic') return { 'x-api-key': key, 'anthropic-version': ANTHROPIC_VERSION, 'anthropic-dangerous-direct-browser-access': 'true' };
-    if (provider === 'gemini') return { 'x-goog-api-key': key }; // a header, so the key never sits in a URL
+    if (provider === 'gemini') return { 'x-goog-api-key': key }; // a header, never ?key= (see geminiReachable)
     const h = { Authorization: 'Bearer ' + key };
     if (provider === 'openrouter') Object.assign(h, { 'HTTP-Referer': APP_URL, 'X-Title': APP_NAME });
     return h;
@@ -74,6 +74,8 @@
     let e;
     if (images && [400, 404, 415, 422].includes(status) && /image|vision|multimodal|modalit/.test(blob)) e = new ProviderError('images_unsupported', msg || "This model doesn't accept images.", 400);
     else if (status === 402 || /insufficient[_ ](credits|quota|balance)|credit balance is too low|out of credits/.test(blob)) e = new ProviderError('out_of_credits', msg, 402);
+    // Google: a key limited to other websites, IP addresses, apps or APIs (API_KEY_*_BLOCKED).
+    else if (provider === 'gemini' && /api_key_[a-z_]+_blocked|requests from referer/.test(blob)) e = new ProviderError('key_restricted', msg || 'Your Google API key is restricted.', 403);
     else if (status === 401 || /api_key_invalid|api key not valid|invalid x-api-key|invalid api key|incorrect api key/.test(blob)) e = new ProviderError('invalid_key', msg || `${name} didn't accept the key.`, 401);
     else if (status === 403) e = provider === 'openrouter' && /moderat|flagged/.test(blob) ? new ProviderError('blocked', msg, 403) : new ProviderError('invalid_key', msg || `${name} didn't allow this key.`, 403);
     else if (status === 429) e = new ProviderError('rate_limited', msg, 429);
@@ -233,10 +235,24 @@
     try { r = await f(url, opts); }
     catch (e) {
       if (e?.name === 'AbortError' || e?.name === 'TimeoutError') throw e;
+      if (provider === 'gemini' && await geminiReachable(f)) throw new ProviderError('key_restricted', 'Your Google API key is restricted.', 403);
       throw new ProviderError('upstream_unreachable', `Couldn't reach ${PROVIDERS[provider].name}.`, 502);
     }
     if (!r.ok) throw mapProviderError(provider, r.status, await r.text().catch(() => ''), images);
     return r;
+  }
+  // The Gemini key goes in the x-goog-api-key header, never ?key=: Google's CORS preflight allows
+  // that header from any site (checked from the hosted site; see tests/provider_cors_check.sh), and
+  // a header keeps the key out of URLs, history and logs. The model list and answers use it alike.
+  // When a keyed request fails without any readable reply, ask Google the same way with a dummy key:
+  // if that one gets an answer, Google is reachable from this page and the header passes CORS, so
+  // the failure is this key's own restrictions (an error Google may send without CORS headers).
+  async function geminiReachable(f) {
+    try {
+      const signal = typeof AbortSignal.timeout === 'function' ? AbortSignal.timeout(8000) : undefined;
+      await f(`${GEMINI_API}/models?pageSize=1`, { headers: { Accept: 'application/json', 'x-goog-api-key': 'reachability-check' }, signal });
+      return true;
+    } catch { return false; }
   }
   async function getJson(provider, url, key, f = fetch, signal) {
     return (await send(provider, url, { headers: { Accept: 'application/json', ...keyHeaders(provider, key) }, signal }, f)).json();
@@ -326,6 +342,7 @@
     let list;
     try { list = await listModels(provider, key, f); }
     catch (e) {
+      if (e.code === 'key_restricted') throw e;
       if (e.code === 'invalid_key' || e.code === 'model_not_found' || [400, 401, 403].includes(e.status)) throw new ProviderError('invalid_key', `${name} didn't accept that key.`);
       throw e;
     }

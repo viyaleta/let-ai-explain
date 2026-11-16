@@ -4,7 +4,8 @@
 
 cases: [{"kind": "parse", "provider", "file"} | {"kind": "error", "provider", "status", "body", "images"}
         | {"kind": "models", "provider", "fixture"} | {"kind": "build", "provider", "model", "instructions",
-        "text", "images", "max_tokens", "effort"} | {"kind": "stream_error", "code", "message"}]
+        "text", "images", "max_tokens", "effort"} | {"kind": "stream_error", "code", "message"}
+        | {"kind": "request_shape", "provider", "key", "model", "instructions", "input"}]
 """
 import json
 import sys
@@ -42,6 +43,20 @@ def run(c):
         finally:
             m.http_json = real
         return {"models": models, "default": default, **extra}
+    if k == "request_shape":  # the model-list call and the answer call, as the server makes them
+        seen = []
+
+        def record(provider, url, headers, payload=None):
+            seen.append({"url": url, "headers": headers})
+            return {"models": [{"name": "models/gemini-3-flash", "supportedGenerationMethods": ["generateContent"]}]}
+        real = m.http_json
+        m.http_json = record
+        try:
+            m.list_models(c["provider"], c["key"])
+        finally:
+            m.http_json = real
+        url, body = m.build_request(c["provider"], c["model"], c["instructions"], c["input"], [], 8192, None)
+        return {"models_url": seen[0]["url"], "key_headers": m.key_headers(c["provider"], c["key"]), "answer_url": url, "answer_body": body}
     if k == "build":
         url, body = m.build_request(c["provider"], c["model"], c["instructions"], c["text"], c["images"], c["max_tokens"], c["effort"])
         return [url, body]

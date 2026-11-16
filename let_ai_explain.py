@@ -403,6 +403,9 @@ def map_provider_error(provider, status, raw, images=False):
         return AppError("images_unsupported", msg or "This model doesn't accept images.", 400)
     if status == 402 or re.search(r"insufficient[_ ](credits|quota|balance)|credit balance is too low|out of credits", blob):
         return AppError("out_of_credits", msg, 402)
+    # Google: a key limited to other websites, IP addresses, apps or APIs (API_KEY_*_BLOCKED).
+    if provider == "gemini" and re.search(r"api_key_[a-z_]+_blocked|requests from referer", blob):
+        return AppError("key_restricted", msg or "Your Google API key is restricted.", 403)
     if status == 401 or re.search(r"api_key_invalid|api key not valid|invalid x-api-key|invalid api key|incorrect api key", blob):
         return AppError("invalid_key", msg or f"{name} didn't accept the key.", 401)
     if status == 403:
@@ -1159,6 +1162,8 @@ h1{{font-size:1.4rem;margin:0 0 .5rem}}p{{margin:0;opacity:.75}}</style></head>
         try:
             models, default, _ = list_models(provider, key)  # the key works if it can list models
         except AppError as e:
+            if e.code == "key_restricted":
+                raise
             if e.code in ("invalid_key", "model_not_found") or e.status in (400, 401, 403):
                 raise AppError("invalid_key", f"{PROVIDERS[provider]['name']} didn't accept that key.", 400)
             raise

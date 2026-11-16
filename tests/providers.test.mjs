@@ -1,5 +1,5 @@
 // providers.js (the browser's provider code) must behave exactly like the local server's.
-//   node --test tests/
+//   node --test tests/providers.test.mjs
 // Runs the same fixtures through both and compares; Python's answers come from tests/py_oracle.py.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -47,7 +47,9 @@ test('HTTP error mapping matches the server', () => {
   const bodies = {
     openai: ['{"error":{"message":"Incorrect API key provided","type":"invalid_request_error","code":"invalid_api_key"}}', '{"error":{"message":"You exceeded your current quota","type":"insufficient_quota","code":"insufficient_quota"}}', '{"error":{"message":"model not found","code":"model_not_found"}}', 'not json at all'],
     anthropic: ['{"type":"error","error":{"type":"authentication_error","message":"invalid x-api-key"}}', '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}', '{"type":"error","error":{"type":"invalid_request_error","message":"Your credit balance is too low"}}', '{"type":"error","error":{"type":"invalid_request_error","message":"image input not supported by this model"}}'],
-    gemini: ['{"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT"}}', '{"error":{"code":429,"message":"Quota","status":"RESOURCE_EXHAUSTED"}}'],
+    gemini: ['{"error":{"code":400,"message":"API key not valid. Please pass a valid API key.","status":"INVALID_ARGUMENT"}}', '{"error":{"code":429,"message":"Quota","status":"RESOURCE_EXHAUSTED"}}',
+      '{"error":{"code":403,"message":"Requests from referer https://let-ai-explain.vercel.app/ are blocked.","status":"PERMISSION_DENIED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_HTTP_REFERRER_BLOCKED","domain":"googleapis.com"}]}}',
+      '{"error":{"code":403,"message":"Requests to this API generativelanguage.googleapis.com method google.ai.generativelanguage.v1beta.GenerativeService.StreamGenerateContent are blocked.","status":"PERMISSION_DENIED","details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"API_KEY_SERVICE_BLOCKED","domain":"googleapis.com"}]}}'],
     openrouter: ['{"error":{"message":"Provider returned error","code":502}}', '{"error":{"message":"upstream idle timeout","code":408}}', '{"error":{"message":"Insufficient credits","code":402}}', '{"error":{"message":"flagged by moderation","code":403}}', '{"detail":"Bad gateway"}']
   };
   for (const [provider, list] of Object.entries(bodies))
@@ -140,6 +142,45 @@ test('checkKey(): bad shape, rejected key, no models', async () => {
   await assert.rejects(P.checkKey('openai', 'sk-123456789', reject), e => e.code === 'invalid_key' && /OpenAI/.test(e.message));
   const empty = async () => new Response('{"data":[]}', { status: 200 });
   await assert.rejects(P.checkKey('openai', 'sk-123456789', empty), e => e.code === 'no_models');
+});
+
+test('Gemini: the key check and answers send the key the same way, matching the fixture and the server', async () => {
+  const fx = JSON.parse(readFileSync(path.join(ROOT, 'tests/fixtures/requests/gemini.json'), 'utf8'));
+  const seen = [];
+  const rec = async (url, opts) => {
+    seen.push({ url, method: opts.method || 'GET', headers: opts.headers, body: opts.body && JSON.parse(opts.body) });
+    return url.includes(':streamGenerateContent')
+      ? new Response(chunkedBody(readFileSync(path.join(ROOT, 'tests/fixtures/sse/gemini-ok.sse'))))
+      : new Response(JSON.stringify({ models: [{ name: 'models/gemini-3-flash', supportedGenerationMethods: ['generateContent'] }] }));
+  };
+  await P.checkKey('gemini', fx.key, rec);
+  const a = fx.answer;
+  await collect(P.respond({ provider: 'gemini', key: fx.key, model: a.model, instructions: a.instructions, input: a.input, fetch: rec }));
+  const [list, answer] = seen;
+  assert.deepEqual({ method: list.method, url: list.url, headers: list.headers }, { method: fx.models.method, url: fx.models.url, headers: fx.models.headers });
+  assert.deepEqual(answer, { method: a.method, url: a.url, headers: a.headers, body: a.body });
+  for (const r of seen) assert.ok(!/[?&]key=/.test(r.url) && !r.url.includes(fx.key), 'the key never goes in a URL: ' + r.url);
+
+  const [py] = python([{ kind: 'request_shape', provider: 'gemini', key: fx.key, model: a.model, instructions: a.instructions, input: a.input }]);
+  assert.deepEqual(py, { models_url: fx.models.url, key_headers: { 'x-goog-api-key': fx.key }, answer_url: a.url, answer_body: a.body });
+});
+
+test('Gemini: a network failure is a restricted key when Google answers a dummy key, else unreachable', async () => {
+  const key = 'AIza-real-looking-key-123';
+  // Only requests carrying the real key fail, as when Google rejects a restricted key without CORS headers.
+  const restricted = async (url, opts) => {
+    if (opts.headers['x-goog-api-key'] === key) throw new TypeError('Failed to fetch');
+    return new Response('{"error":{"code":400,"message":"API key not valid."}}', { status: 400 });
+  };
+  await assert.rejects(P.checkKey('gemini', key, restricted), e => e.code === 'key_restricted' && !e.message.includes(key));
+  await assert.rejects(collect(P.respond({ provider: 'gemini', key, model: 'gemini-3-flash', input: 'x', fetch: restricted })),
+    e => e.code === 'key_restricted' && !e.message.includes(key));
+  const offline = async () => { throw new TypeError('Failed to fetch'); };
+  await assert.rejects(collect(P.respond({ provider: 'gemini', key, model: 'gemini-3-flash', input: 'x', fetch: offline })),
+    e => e.code === 'upstream_unreachable');
+  // A readable restriction error maps the same way.
+  const blocked = async () => new Response('{"error":{"code":403,"message":"Requests from referer https://x/ are blocked.","details":[{"reason":"API_KEY_HTTP_REFERRER_BLOCKED"}]}}', { status: 403 });
+  await assert.rejects(P.checkKey('gemini', key, blocked), e => e.code === 'key_restricted');
 });
 
 test('PKCE: challenge is the S256 of the verifier', async () => {

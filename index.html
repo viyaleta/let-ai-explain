@@ -1091,7 +1091,8 @@ $('#key-form').addEventListener('submit', async e => {
     await afterConnect();
   } catch (err) {
     const name = $('#key-provider').selectedOptions[0].textContent;
-    $('#key-msg').textContent = err?.code === 'invalid_key' ? `${name} didn’t accept that key. Check that you copied all of it.`
+    $('#key-msg').textContent = err?.code === 'key_restricted' ? friendlyError(err)
+      : err?.code === 'invalid_key' ? `${name} didn’t accept that key. Check that you copied all of it.`
       : err instanceof TypeError ? 'Can’t reach the Let AI Explain server. Is let_ai_explain.py still running?'
       : err?.code === 'upstream_unreachable' ? `Couldn’t reach ${name} to check the key. Check your internet connection.`
       : err?.code === 'rate_limited' ? `${name} is limiting requests right now. Wait a minute and try again.`
@@ -1282,6 +1283,9 @@ const COPY = {
   subscription_sharing_user_unavailable: 'ChatGPT account info is temporarily unavailable. Try again in a minute.',
   subscription_sharing_invalid_user: 'ChatGPT couldn’t validate this account. Sign out and continue with ChatGPT again.',
   subscription_sharing_unsupported_capability: 'This model doesn’t support that request with plan usage. Pick another model in the account menu.',
+  key_restricted: () => appMode === 'hosted'
+    ? 'Your Google API key is restricted. Allow this site in Google Cloud Console or use an unrestricted key.'
+    : 'Your Google API key is restricted. Allow the Generative Language API for it in Google Cloud Console, or use an unrestricted key.',
   invalid_key: () => session.provider === 'openrouter'
     ? 'OpenRouter didn’t accept this connection. Open the account menu, choose Switch connection and sign in with OpenRouter again.'
     : `${provName()} didn’t accept your API key. Open the account menu and choose Switch connection to enter a new one.`,
