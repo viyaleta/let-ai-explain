@@ -215,6 +215,10 @@ class AppError(Exception):
     def __init__(self, code, message="", status=400):
         super().__init__(message or code)
         self.code, self.message, self.status = code, message, status
+        self.retryable = False  # a passing upstream failure: the page may try again (free router)
+
+    def json(self):
+        return {"error": self.code, "message": self.message, **({"retryable": True} if self.retryable else {})}
 
 
 def post_form(url, fields):
@@ -376,8 +380,28 @@ def key_headers(provider, key):
 
 
 # ---------------------------------------------------------------- provider errors
+# OpenRouter failures that pass: its gateway or the routed model was briefly unavailable.
+RETRYABLE_STATUS = (502, 503, 504)
+IDLE_TIMEOUT = re.compile(r"upstream idle timeout|idle timeout", re.I)
+
+
+def openrouter_retryable(status, message):
+    try:
+        status = int(status)
+    except (TypeError, ValueError):
+        status = None
+    return status in RETRYABLE_STATUS or bool(IDLE_TIMEOUT.search(str(message or "")))
+
+
 def provider_error(provider, status, raw, images=False):
     """Map an HTTP error from any provider onto the page's error codes."""
+    err = map_provider_error(provider, status, raw, images)
+    if provider == "openrouter" and openrouter_retryable(status, raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw):
+        err.retryable = True
+    return err
+
+
+def map_provider_error(provider, status, raw, images=False):
     code, msg = error_from_body(raw, status)
     code = str(code)
     blob = (raw.decode("utf-8", "replace") if isinstance(raw, bytes) else str(raw))[:4000].lower()
@@ -521,12 +545,17 @@ def openrouter_credits(headers):
 # ---------------------------------------------------------------- stream parsers
 # Each takes the decoded JSON "data:" events of one stream and yields the page's
 # ndjson events: {"delta": text}, then {"done": true} or {"error": code, "message": ...}.
+# OpenRouter also yields progress: {"wait": true} while queued, {"reasoning": n} (a count of
+# reasoning chunks; their text isn't sent) and {"model": slug} for the model that answers.
 # A stream that ends without either is reported as "interrupted" by the caller.
 def sse_events(lines):
     for raw in lines:
         line = (raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw).strip()
+        if line.startswith(":"):
+            yield {"_comment": line[1:].strip()}  # ": OPENROUTER PROCESSING" keep-alives; other parsers ignore it
+            continue
         if not line.startswith("data:"):
-            continue  # "event:" names, ": keep-alive" comments, blank separators
+            continue  # "event:" names, blank separators
         data = line[5:].strip()
         if not data or data == "[DONE]":
             continue
@@ -539,8 +568,13 @@ def sse_events(lines):
 
 
 def parse_openai(events):
+    model = None
     for ev in events:
         t = ev.get("type")
+        m = (ev.get("response") or {}).get("model") if isinstance(ev.get("response"), dict) else None
+        if isinstance(m, str) and m and m != model:
+            model = m
+            yield {"model": model}  # the model that actually answers
         if t == "response.output_text.delta":
             yield {"delta": ev.get("delta", "")}
         elif t == "response.completed":
@@ -570,22 +604,41 @@ def finish(reason, ok, cut):
     return [{"error": "blocked", "message": str(reason)}]
 
 
+def midstream_error(e):
+    """An error OpenRouter sends inside the stream (the HTTP status was already 200)."""
+    err = stream_error(e.get("code") or "error", e.get("message", ""))
+    if err["error"] == "error" or err["error"].startswith("http_5"):
+        err["error"] = "model_error"  # the chosen model failed partway; the page words it plainly
+    if openrouter_retryable(e.get("code"), e.get("message", "")):
+        err["retryable"] = True
+    return err
+
+
 def parse_openrouter(events):
-    reason = None
+    reason, model, reasoning = None, None, 0
     for ev in events:
+        if "_comment" in ev:
+            yield {"wait": True}
+            continue
         if isinstance(ev.get("error"), dict):
-            e = ev["error"]
-            yield stream_error(e.get("code"), e.get("message", ""))
+            yield midstream_error(ev["error"])
             return
+        if isinstance(ev.get("model"), str) and ev["model"] and ev["model"] != model:
+            model = ev["model"]
+            yield {"model": model}
         choices = ev.get("choices") or []
         if not choices:
             continue
         ch = choices[0]
-        text = (ch.get("delta") or {}).get("content")
+        delta = ch.get("delta") or {}
+        if (isinstance(delta.get("reasoning"), str) and delta["reasoning"]) or delta.get("reasoning_details"):
+            reasoning += 1
+            yield {"reasoning": reasoning}
+        text = delta.get("content")
         if isinstance(text, str) and text:
             yield {"delta": text}
-        if ch.get("finish_reason") == "error":
-            yield stream_error((ch.get("error") or {}).get("code") or "error", (ch.get("error") or {}).get("message", ""))
+        if ch.get("finish_reason") == "error" or isinstance(ch.get("error"), dict):
+            yield midstream_error(ch.get("error") or ev.get("error") or {})
             return
         reason = ch.get("finish_reason") or reason
     yield from finish(reason, ok=("stop", "tool_calls", "function_call"), cut=("length",))
@@ -595,6 +648,8 @@ def parse_anthropic(events):
     stop = None
     for ev in events:
         t = ev.get("type")
+        if t == "message_start" and isinstance((ev.get("message") or {}).get("model"), str):
+            yield {"model": ev["message"]["model"]}
         if t == "content_block_delta":
             d = ev.get("delta") or {}
             if d.get("type") == "text_delta" and d.get("text"):
@@ -612,8 +667,11 @@ def parse_anthropic(events):
 
 
 def parse_gemini(events):
-    reason = None
+    reason, model = None, None
     for ev in events:
+        if isinstance(ev.get("modelVersion"), str) and ev["modelVersion"] and ev["modelVersion"] != model:
+            model = ev["modelVersion"]
+            yield {"model": model}
         if isinstance(ev.get("error"), dict):
             e = ev["error"]
             yield stream_error(e.get("code") or e.get("status"), e.get("message", ""))
@@ -644,7 +702,10 @@ def split_data_url(u):
     return head[5:].split(";")[0], data  # "image/png", base64 payload
 
 
-def build_request(provider, model, instructions, text, images, max_tokens=16000):
+REASONING_EFFORTS = ("minimal", "low", "medium", "high")
+
+
+def build_request(provider, model, instructions, text, images, max_tokens=16000, effort=None):
     """URL path pieces and JSON body for one streamed answer in the provider's own format."""
     if provider in ("chatgpt", "openai"):
         content = text
@@ -661,7 +722,10 @@ def build_request(provider, model, instructions, text, images, max_tokens=16000)
                 {"type": "image_url", "image_url": {"url": u, "detail": "low"}} for u in images]
         messages = ([{"role": "system", "content": instructions}] if instructions else []) + [
             {"role": "user", "content": content}]
-        return OPENROUTER_API + "/chat/completions", {"model": model, "messages": messages, "stream": True}
+        body = {"model": model, "messages": messages, "stream": True}
+        if effort in REASONING_EFFORTS:
+            body["reasoning"] = {"effort": effort}  # models without reasoning ignore it
+        return OPENROUTER_API + "/chat/completions", body
     if provider == "anthropic":
         content = [{"type": "image", "source": {"type": "base64", "media_type": mt, "data": d}}
                    for mt, d in map(split_data_url, images)] + [{"type": "text", "text": text}]
@@ -951,7 +1015,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(200, check_url(target))
             self.send_json(404, {"error": "not_found"})
         except AppError as e:
-            self.send_json(e.status, {"error": e.code, "message": e.message})
+            self.send_json(e.status, e.json())
         except Exception as e:
             self.send_json(502, {"error": "server_error", "message": f"{type(e).__name__}: {e}"})
 
@@ -974,7 +1038,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.api_desktop(path.rsplit("/", 1)[1], self.read_body())
             self.send_json(404, {"error": "not_found"})
         except AppError as e:
-            self.send_json(e.status, {"error": e.code, "message": e.message})
+            self.send_json(e.status, e.json())
         except Exception as e:
             self.send_json(502, {"error": "server_error", "message": f"{type(e).__name__}: {e}"})
 
@@ -1003,7 +1067,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(200, prefs)
             self.send_json(404, {"error": "not_found"})
         except AppError as e:
-            self.send_json(e.status, {"error": e.code, "message": e.message})
+            self.send_json(e.status, e.json())
         except Exception as e:
             self.send_json(500, {"error": "server_error", "message": f"{type(e).__name__}: {e}"})
 
@@ -1023,7 +1087,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json(200, {"sessions": history_list()})
             self.send_json(404, {"error": "not_found"})
         except AppError as e:
-            self.send_json(e.status, {"error": e.code, "message": e.message})
+            self.send_json(e.status, e.json())
         except Exception as e:
             self.send_json(500, {"error": "server_error", "message": f"{type(e).__name__}: {e}"})
 
@@ -1342,7 +1406,7 @@ h1{{font-size:1.4rem;margin:0 0 .5rem}}p{{margin:0;opacity:.75}}</style></head>
         self.wfile.write((json.dumps(obj) + "\n").encode())
         self.wfile.flush()
 
-    def open_answer(self, provider, model, instructions, text, images):
+    def open_answer(self, provider, model, instructions, text, images, effort=None):
         """Start the provider's stream; returns the open response."""
         if provider == "chatgpt":
             url, body = build_request(provider, model, instructions, text, images)
@@ -1365,7 +1429,7 @@ h1{{font-size:1.4rem;margin:0 0 .5rem}}p{{margin:0;opacity:.75}}</style></head>
         headers = {**key_headers(provider, api_key(provider)), "Accept": "text/event-stream"}
         # Some older Claude models allow fewer output tokens; step down if the first size is refused.
         for max_tokens in (16000, 8192, 4096):
-            url, body = build_request(provider, model, instructions, text, images, max_tokens)
+            url, body = build_request(provider, model, instructions, text, images, max_tokens, effort)
             try:
                 return http_open(provider, url, headers, json.dumps(body).encode(), timeout=300, images=bool(images))
             except AppError as e:
@@ -1383,7 +1447,8 @@ h1{{font-size:1.4rem;margin:0 0 .5rem}}p{{margin:0;opacity:.75}}</style></head>
         if images and (not isinstance(images, list) or len(images) > 6 or not all(
                 isinstance(u, str) and len(u) < 400_000 and IMAGE_DATA_URL.match(u) for u in images)):
             raise AppError("bad_images", "Images must be up to 6 small PNG, JPEG, GIF or WebP data URLs.", 400)
-        upstream = self.open_answer(provider, model, body.get("instructions") or "", text, images)
+        effort = body.get("reasoning") if body.get("reasoning") in REASONING_EFFORTS else None
+        upstream = self.open_answer(provider, model, body.get("instructions") or "", text, images, effort)
 
         self.send_response(200)
         self.send_header("Content-Type", "application/x-ndjson")

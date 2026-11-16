@@ -164,6 +164,8 @@ main{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);min-height:c
 .deeper-status.error{color:var(--err)}
 .deeper-status.error .pulse{display:none}
 .prose hr.deeper-sep{width:40%;margin:3.2rem auto}
+/* Which model wrote the section: one tiny line, never part of a selection. */
+.prose .byline{font-family:var(--sans);font-size:.72rem;line-height:1.4;color:var(--muted);margin:1.4rem 0 0;-webkit-user-select:none;user-select:none}
 /* Citations and references (hidden until the References toggle is on) */
 sup.cite{font-family:var(--sans);font-size:.62em;font-weight:600;line-height:0;margin-left:.08em}
 sup.cite a{color:var(--accent);text-decoration:none}
@@ -383,7 +385,10 @@ dialog::backdrop{background:rgba(14,18,28,.38)}
 
 /* Sign-in gate: three matching connection options */
 main[hidden],#gate[hidden],.gate-btn[hidden],.gate-msg[hidden]{display:none}
-#gate{min-height:calc(100vh - var(--hdr));display:flex;flex-direction:column;align-items:center;padding:2rem 16px 1.5rem}
+#gate{position:relative;min-height:calc(100vh - var(--hdr));display:flex;flex-direction:column;align-items:center;padding:2rem 16px 1.5rem}
+/* Switching connection: close the chooser and go back to the explanation. */
+.gate-close{position:absolute;top:1rem;right:16px}
+.gate-close[hidden]{display:none}
 .gate-box{--opt-h:3.25rem;--opt-r:12px;margin:auto 0;width:100%;max-width:22rem;display:flex;flex-direction:column;align-items:stretch;gap:1.5rem;text-align:center}
 .gate-copy{margin:0;font-size:1.2rem;line-height:1.5;color:var(--muted);text-wrap:balance}
 .gate-opts{display:flex;flex-direction:column;gap:.6rem;font-family:var(--sans)}
@@ -479,6 +484,9 @@ main[hidden],#gate[hidden],.gate-btn[hidden],.gate-msg[hidden]{display:none}
 </header>
 
 <section id="gate" aria-label="Sign in" hidden>
+  <button type="button" class="icon-btn gate-close" id="gate-close" aria-label="Close and go back to your explanation" title="Back (Esc)" hidden>
+    <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true"><path d="M3.5 3.5l9 9M12.5 3.5l-9 9" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+  </button>
   <div class="gate-box">
     <p class="gate-copy" id="gate-copy"></p>
     <div class="gate-opts">
@@ -695,7 +703,10 @@ async function redrawDiagrams() { for (const fig of $$('figure.diagram:not(.brok
 /* ---------------- Local server + ChatGPT session ---------------- */
 class AppError extends Error { constructor(code, message) { super(message || code); this.code = code; } }
 const api = (path, opts = {}) => fetch(path, { ...opts, headers: { 'X-Let-AI-Explain': '1', ...(opts.headers || {}) } });
-async function apiError(r) { const j = await r.json().catch(() => ({})); return new AppError(j.error || 'http_' + r.status, j.message); }
+async function apiError(r) {
+  const j = await r.json().catch(() => ({}));
+  return Object.assign(new AppError(j.error || 'http_' + r.status, j.message), { retryable: !!j.retryable });
+}
 
 let session = { connected: false, sharing: false }, models = [], modelDefault = null, modelsInfo = {}, modelsError = '';
 let switching = false; // the connection chooser is open while still connected
@@ -773,7 +784,7 @@ function renderGate() {
   btn.hidden = !g.href;
   if (g.href) { $('#gate-btn-label').textContent = g.label; btn.setAttribute('href', g.href); }
   $('#gate-alt').hidden = !g.alt;
-  $('#gate-cancel').hidden = mode !== 'switch';
+  $('#gate-cancel').hidden = $('#gate-close').hidden = mode !== 'switch';
   // Saved API keys can be used again without pasting them.
   const keys = (session.saved || []).filter(x => KEY_LINKS[x.provider]);
   $('#gate-saved').hidden = !keys.length;
@@ -955,7 +966,19 @@ document.addEventListener('click', e => {
   e.preventDefault();
   desktopCall('open', { url: url.href }).catch(err => console.warn('Couldn’t open the link', err));
 });
-$('#gate-cancel').addEventListener('click', () => { switching = false; gateMsg = ''; renderAccount(); });
+// Leave the connection chooser without changing anything; the explanation is still there.
+function closeSwitch() {
+  if (!switching) return;
+  switching = false; gateMsg = ''; gateInfo = false;
+  setKeyOpen(false); $('#key-input').value = '';
+  renderAccount();
+  if (!$('#acct-btn').hidden) $('#acct-btn').focus();
+}
+$('#gate-cancel').addEventListener('click', closeSwitch);
+$('#gate-close').addEventListener('click', closeSwitch);
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape' && switching && !$('#gate').hidden && !document.querySelector('dialog[open]')) { e.preventDefault(); closeSwitch(); }
+});
 $('#acct-btn').addEventListener('click', () => { renderAccount(); $('#acct').showModal(); });
 $('#dlg-done').addEventListener('click', () => $('#acct').close());
 $('#acct-switch').addEventListener('click', () => { $('#acct').close(); switching = true; gateMsg = ''; renderAccount(); });
@@ -971,39 +994,107 @@ $('#signout').addEventListener('click', async () => {
   $('#acct').close(); switching = false; models = []; await refreshSession();
 });
 
+// OpenRouter's free router queues requests and picks a free model, which can stall for minutes.
+const FREE_ROUTER = 'openrouter/free';
+const FREE_LIMITS = { firstText: 60000, silence: 45000, total: 240000 };
+const usingFreeRouter = (model = currentModel()) => session.provider === 'openrouter' && model === FREE_ROUTER;
+// A model slug as the reader knows it: its listed name, or the slug without the vendor and ":free".
+const modelLabel = slug => models.find(x => x.slug === slug)?.name || String(slug).replace(/^[^/]*\//, '').replace(/:free$/, '');
+// Status line for a streaming answer; `what` names the thing being written ("the explanation").
+function progressText(p, what) {
+  if (p.phase === 'waiting') return usingFreeRouter() ? 'Waiting for a free model…' : `Waiting for ${provName()}…`;
+  if (p.phase === 'thinking') return p.model ? `Thinking (${modelLabel(p.model)})…` : 'Thinking…';
+  return (p.model ? `Writing with ${modelLabel(p.model)}…` : `Writing ${what}…`) + (p.words ? ` ${p.words} word${p.words === 1 ? '' : 's'}` : '');
+}
+
 // Ask the model through the local server; streams text and resolves only on a completed response.
-async function callLLM({ system, user, signal, onText, images }) {
+// effort: OpenRouter reasoning effort ('low' for explanations, 'minimal' for quick side answers).
+// onProgress({ phase: 'waiting' | 'thinking' | 'writing', words, model }) reports what the stream is doing.
+// meta, if given, gets meta.model: the model the provider reports writing the answer (else the chosen one).
+async function callLLM({ system, user, signal, onText, onProgress, images, effort = 'minimal', meta }) {
   if (!session.connected) throw new AppError('not_signed_in');
   if (!usable()) throw new AppError('plan_usage_not_enabled');
   const model = currentModel();
   // OpenRouter lists which models take images; skip the request when this one doesn't.
   if (images?.length && models.find(x => x.slug === model)?.images === false) throw new AppError('images_unsupported');
-  const r = await api('/api/respond', {
-    method: 'POST', signal, headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ model, instructions: system, input: user, ...(images?.length ? { images } : {}) })
-  });
-  if (!r.ok) throw await apiError(r);
-  const reader = r.body.getReader(), dec = new TextDecoder();
-  let buf = '', text = '', done = false, imagesSent = !images?.length;
-  for (;;) {
-    const { value, done: end } = await reader.read();
-    if (end) break;
-    buf += dec.decode(value, { stream: true });
-    let i;
-    while ((i = buf.indexOf('\n')) >= 0) {
-      const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
-      if (!line) continue;
-      let ev; try { ev = JSON.parse(line); } catch { continue; }
-      if (typeof ev.delta === 'string') { text += ev.delta; onText?.(text); }
-      else if (ev.done) done = true;
-      else if (ev.error) throw new AppError(ev.error, ev.message);
-      else if (typeof ev.images === 'number') imagesSent = ev.images === images.length;
+  const once = limits => streamAnswer({ model, system, user, signal, onText, onProgress, images, effort, limits, meta });
+  if (!usingFreeRouter(model)) return once(null);
+  // Free models rotate, so one retry often lands on a faster one. Never wait more than 4 minutes in all.
+  const deadline = Date.now() + FREE_LIMITS.total;
+  for (let attempt = 0; ; attempt++) {
+    try { return await once({ ...FREE_LIMITS, deadline }); }
+    catch (e) {
+      // Stalls and passing upstream failures (502/503/504, "upstream idle timeout") get one retry.
+      if (!(e?.code === 'free_stalled' || e?.retryable) || signal?.aborted) throw e;
+      if (attempt >= 1 || deadline - Date.now() < 15000) throw new AppError('free_busy');
+      console.info('[llm] free model failed, retrying once:', e.code, e.message);
+      onText?.('');
     }
   }
-  if (!done) throw new AppError('interrupted');
-  // An older server drops images silently; then the answer isn't about them.
-  if (!imagesSent) throw new AppError('images_ignored', 'The local server didn’t send the images. Restart let_ai_explain.py.');
-  return text;
+}
+
+// One streamed request. With limits, gives up (code free_stalled) when no text arrives in time,
+// the stream goes quiet, or the overall deadline passes.
+async function streamAnswer({ model, system, user, signal, onText, onProgress, images, effort, limits, meta }) {
+  const ctl = new AbortController(), stop = () => ctl.abort();
+  if (signal?.aborted) throw new DOMException('Stopped', 'AbortError');
+  signal?.addEventListener('abort', stop, { once: true });
+  const p = { phase: 'waiting', words: 0, model: null }, report = () => onProgress?.({ ...p });
+  const started = Date.now();
+  let last = started, gotText = false, stalled = null, timer = null;
+  if (limits) {
+    report();
+    timer = setInterval(() => {
+      const now = Date.now();
+      stalled = now >= limits.deadline ? 'deadline'
+        : now - last >= limits.silence ? `no data for ${limits.silence / 1000}s`
+        : !gotText && now - started >= limits.firstText ? `no text after ${limits.firstText / 1000}s` : null;
+      if (stalled) ctl.abort();
+    }, 1000);
+  }
+  try {
+    const r = await api('/api/respond', {
+      method: 'POST', signal: ctl.signal, headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model, instructions: system, input: user, reasoning: effort, ...(images?.length ? { images } : {}) })
+    });
+    if (!r.ok) throw await apiError(r);
+    const reader = r.body.getReader(), dec = new TextDecoder();
+    let buf = '', text = '', done = false, imagesSent = !images?.length;
+    for (;;) {
+      const { value, done: end } = await reader.read();
+      if (end) break;
+      last = Date.now();
+      buf += dec.decode(value, { stream: true });
+      let i;
+      while ((i = buf.indexOf('\n')) >= 0) {
+        const line = buf.slice(0, i).trim(); buf = buf.slice(i + 1);
+        if (!line) continue;
+        let ev; try { ev = JSON.parse(line); } catch { continue; }
+        if (typeof ev.delta === 'string') {
+          text += ev.delta; onText?.(text);
+          if (ev.delta) { gotText = true; p.phase = 'writing'; p.words = wordCount(text); report(); }
+        }
+        else if (ev.done) done = true;
+        else if (ev.error) throw Object.assign(new AppError(ev.error, ev.message), { retryable: !!ev.retryable });
+        else if (typeof ev.images === 'number') imagesSent = ev.images === images.length;
+        else if (typeof ev.model === 'string') { p.model = ev.model; report(); }
+        else if (typeof ev.reasoning === 'number') { if (!gotText && p.phase !== 'thinking') { p.phase = 'thinking'; report(); } }
+        else if (ev.wait) { if (!gotText && p.phase !== 'waiting') { p.phase = 'waiting'; report(); } }
+      }
+    }
+    if (!done) throw new AppError('interrupted');
+    // An older server drops images silently; then the answer isn't about them.
+    if (!imagesSent) throw new AppError('images_ignored', 'The local server didn’t send the images. Restart let_ai_explain.py.');
+    if (meta) meta.model = p.model || model;
+    return text;
+  } catch (e) {
+    if (stalled && !signal?.aborted) throw new AppError(stalled === 'deadline' ? 'free_too_slow' : 'free_stalled', stalled);
+    throw e;
+  } finally {
+    clearInterval(timer);
+    signal?.removeEventListener('abort', stop);
+    ctl.abort(); // closes the stream if we stopped reading early
+  }
 }
 
 // Entries may be functions when the wording depends on the connected provider.
@@ -1031,6 +1122,9 @@ const COPY = {
   provider_busy: () => `${provName()} is overloaded right now. Try again shortly.`,
   blocked: () => `${provName()} declined to answer this request.`,
   images_unsupported: 'This model doesn’t accept images.',
+  free_busy: 'The free models are busy right now. Try again in a minute, or pick a specific model in the account menu.',
+  free_too_slow: 'The free model took too long to answer. Try again, or pick a specific model in the account menu.',
+  model_error: e => `The model stopped with an error${e.message && e.message !== e.code ? ': ' + e.message.replace(/\.?$/, '.') : '.'} Try again${usingFreeRouter() ? ' (a different free model may answer)' : ''}.`,
   incomplete: 'The answer was cut off before it finished. Try again.',
   interrupted: 'The connection dropped before the answer finished. Try again.',
   no_model: 'Choose a model in the account menu first.',
@@ -1041,7 +1135,7 @@ function friendlyError(e) {
   if (e instanceof TypeError && /fetch|network|load failed/i.test(e.message || '')) return 'Can’t reach the Let AI Explain server. Is let_ai_explain.py still running?';
   if (['session_expired', 'not_signed_in', 'subscription_sharing_invalid_user'].includes(e?.code)) refreshSession();
   const copy = e?.code && COPY[e.code];
-  if (copy) return typeof copy === 'function' ? copy() : copy;
+  if (copy) return typeof copy === 'function' ? copy(e) : copy;
   if (e?.code === 'http_403') return `${session.provider === 'chatgpt' ? 'OpenAI' : provName()} didn’t allow this request` + (e.message && e.message !== e.code ? ': ' + e.message : '.');
   if (e?.code === 'http_503') return session.provider === 'chatgpt' ? 'ChatGPT plan usage is temporarily unavailable. Try again shortly.' : COPY.provider_busy();
   return (e?.message && e.message !== e.code ? e.message : 'Something went wrong') + (e?.code ? ` (${e.code})` : '');
@@ -2284,19 +2378,29 @@ function cleanText(node) {
     const tex = k.querySelector('annotation[encoding="application/x-tex"]')?.textContent;
     k.replaceWith(tex ? ` $${tex}$ ` : k.textContent);
   }
-  $$('figure.diagram, .svg-fig, figure.chart, .commons .attr, .img-missing, .elab-head, .think-label, .recap-label, summary, svg, sup.cite', box).forEach(e => e.remove());
+  $$('figure.diagram, .svg-fig, figure.chart, .commons .attr, .img-missing, .elab-head, .think-label, .recap-label, summary, svg, sup.cite, .byline', box).forEach(e => e.remove());
   return squash(box.textContent);
 }
 
 /* ---------------- State ---------------- */
 const article = $('#article'), notesList = $('#notes-list'), statusEl = $('#status');
 // sections: the main Markdown plus one per Go deeper layer. elabs: open elaborations. sid: history session id.
-let state = { docMd: '', sections: [], title: '', notes: [], elabs: [], input: '', level, sourceImages: [], next: [], refs: [], showRefs: false, sid: null };
+let state = { docMd: '', sections: [], writers: [], title: '', notes: [], elabs: [], input: '', level, sourceImages: [], next: [], refs: [], showRefs: false, sid: null };
 let mainCtl = null, reqSeq = 0, blockSeq = 0;
 // Stable ids for every top-level block (and blocks inside elaborations), used to anchor margin notes.
 function assignBlockIds() {
   for (const el of [...article.children, ...$$('.elab-body > *', article)])
-    if (!el.dataset.blockId) el.dataset.blockId = 'b' + (++blockSeq);
+    if (!el.dataset.blockId && !el.matches('.byline')) el.dataset.blockId = 'b' + (++blockSeq);
+}
+
+// Who wrote a section: the model the provider reported (openrouter/free picks one), else the chosen id.
+const writerOf = meta => ({ model: meta?.model || currentModel(), via: provName() });
+// The tiny "Written by …" line closing section i. Go deeper sections get one only when a
+// different model wrote them than the main explanation. Null when there's nothing to show.
+function bylineFor(writers, i) {
+  const w = writers?.[i];
+  if (!w?.model || (i > 0 && w.model === writers[0]?.model)) return null;
+  return h('p', { class: 'byline', text: `Written by ${w.model}${w.via ? ' via ' + w.via : ''}` });
 }
 
 function setStatus(msg, isError = false) {
@@ -2325,7 +2429,7 @@ async function explain(input) {
   resetFollowup();
   const lv = level;
   flushSave();
-  state = { docMd: '', sections: [], title: '', notes: [], elabs: [], input, level: lv, sourceImages: [], next: [], refs: [], showRefs: false, sid: null };
+  state = { docMd: '', sections: [], writers: [], title: '', notes: [], elabs: [], input, level: lv, sourceImages: [], next: [], refs: [], showRefs: false, sid: null };
   blockSeq = 0;
   syncExport(); syncRefs();
 
@@ -2348,8 +2452,9 @@ async function explain(input) {
         : `The reader gave this link, but it couldn't be read (${why || 'unknown error'}): ${p.url}\nStart with one italic line saying the page couldn't be opened, then explain what the link points to from what you know. Don't pretend to quote it.`;
     }
     setStatus('Writing the explanation…');
-    const raw = await callLLM({ system: withLevel(MAIN_SYSTEM, 'main', lv), user, signal,
-      onText: t => { if (my === reqSeq) setStatus(`Writing the explanation… ${wordCount(t)} words`); } });
+    const meta = {};
+    const raw = await callLLM({ system: withLevel(MAIN_SYSTEM, 'main', lv), user, signal, effort: 'low', meta,
+      onProgress: pr => { if (my === reqSeq) setStatus(progressText(pr, 'the explanation')); } });
     if (my !== reqSeq) return;
     if (!squash(raw)) throw new AppError('empty', 'The model returned an empty answer. Try again or pick another model.');
     setStatus('Checking math, diagrams, images and references…');
@@ -2368,7 +2473,8 @@ async function explain(input) {
     h1?.querySelectorAll('sup.cite').forEach(x => x.remove());
     state.title = squash(h1?.textContent) || truncate(input, 80);
     document.title = state.title + ' · Let AI Explain';
-    article.replaceChildren(...root.childNodes);
+    const writer = writerOf(meta);
+    article.replaceChildren(...root.childNodes, bylineFor([writer], 0));
     assignBlockIds();
     setStatus(null);
     notesList.replaceChildren(notesHint());
@@ -2377,6 +2483,7 @@ async function explain(input) {
     renderDeeper(next);
     // Finished: start a history session for this tab and put it in the URL.
     state.sections = [state.docMd];
+    state.writers = [writer];
     state.sid = newSid(); state.created = Date.now();
     setHash(state.sid, true);
     saveSession();
@@ -2433,8 +2540,9 @@ async function goDeeper(direction) {
   ].filter(Boolean).join('\n\n');
   const live = () => my === reqSeq && state === st && !signal.aborted;
   try {
-    const raw = await callLLM({ system: withLevel(DEEPER_SYSTEM, 'main', sel), user, signal,
-      onText: t => { if (live()) deeperStatus(`Writing a deeper layer… ${wordCount(t)} words`); } });
+    const meta = {};
+    const raw = await callLLM({ system: withLevel(DEEPER_SYSTEM, 'main', sel), user, signal, effort: 'low', meta,
+      onProgress: pr => { if (live()) deeperStatus(progressText(pr, 'a deeper layer')); } });
     if (!live()) throw new DOMException('Stopped', 'AbortError');
     if (!squash(raw)) throw new AppError('empty', 'The model returned an empty answer. Try again.');
     deeperStatus('Checking math, diagrams, images and references…');
@@ -2446,7 +2554,9 @@ async function goDeeper(direction) {
     if (!live()) throw new DOMException('Stopped', 'AbortError');
     linkCitations(root, cites);
     const sep = h('hr', { class: 'deeper-sep' });
-    article.append(sep, ...root.childNodes);
+    st.writers[st.sections.length] = writerOf(meta);
+    const line = bylineFor(st.writers, st.sections.length);
+    article.append(sep, ...root.childNodes, ...(line ? [line] : []));
     assignBlockIds();
     const layer = applyCites(md, cites);
     st.docMd += '\n\n---\n\n' + layer;
@@ -2473,7 +2583,7 @@ let pending = null;
 
 function blockFor(node) {
   let el = node.nodeType === 1 ? node : node.parentElement;
-  if (!el || el === article || !article.contains(el)) return null;
+  if (!el || el === article || !article.contains(el) || el.closest('.byline')) return null;
   while (el.parentElement && el.parentElement !== article && !el.parentElement.classList.contains('elab-body')) el = el.parentElement;
   return el.parentElement ? el : null;
 }
@@ -2901,6 +3011,7 @@ math[display="block"]{display:block;margin:1rem 0}
 hr{border:0;border-top:1px solid var(--rule);margin:2.4rem auto;width:40%}
 .elab{margin:1rem 0 1.4rem;padding:.8rem 1.1rem;border-left:3px solid var(--accent);background:var(--note);border-radius:0 10px 10px 0}
 .elab-head{font-family:var(--sans);font-size:.75rem;color:var(--muted);margin-bottom:.35rem}
+.byline{font-family:var(--sans);font-size:.7rem;line-height:1.4;color:var(--muted);margin:1.2rem 0 0}
 .elab-body{font-size:.98rem}
 .think,.recap{margin:1.5rem 0;padding:.85rem 1.15rem;border:1px solid var(--think-rule);border-left:3px solid var(--think-ink);background:var(--think-bg);border-radius:0 10px 10px 0}
 .think-label,.recap-label{font-family:var(--sans);font-size:.72rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--think-ink);margin:0 0 .3rem}
@@ -3453,7 +3564,7 @@ hInit();
 
 // What identifies a block across a re-render, so notes and elaborations reattach to the same block ids.
 const blockSig = el => cleanText(el).slice(0, 160);
-const blockList = els => els.filter(el => el.nodeType === 1 && !el.matches('aside.elab')).map(el => ({ id: el.dataset.blockId || '', text: blockSig(el) }));
+const blockList = els => els.filter(el => el.nodeType === 1 && !el.matches('aside.elab, .byline')).map(el => ({ id: el.dataset.blockId || '', text: blockSig(el) }));
 // Give re-rendered blocks their saved ids, matching in order by text (tolerates an image that no longer loads).
 function alignIds(els, saved) {
   let k = 0;
@@ -3474,7 +3585,7 @@ function snapshot(st) {
   }
   return {
     v: 1, id: st.sid, created: st.created || Date.now(), ts: Date.now(), input: st.input, level: st.level, title: st.title,
-    sections: st.sections, sourceImages: st.sourceImages, refs: st.refs.map(({ n, ...r }) => r), next: st.next, blocks, blockSeq,
+    sections: st.sections, writers: st.writers || [], sourceImages: st.sourceImages, refs: st.refs.map(({ n, ...r }) => r), next: st.next, blocks, blockSeq,
     elabs: st.elabs.filter(e => e.box.isConnected).map(e => ({ after: e.after, quote: e.quote, md: e.md, blocks: blockList([...e.box.querySelector('.elab-body').children]) })),
     notes: st.notes.filter(n => !n.failed).map(n => ({ quote: n.quote ?? null, blockId: n.blockId || null, question: n.question ?? null, answer: n.answer || '', md: n.md, visual: !!n.visual }))
   };
@@ -3504,7 +3615,9 @@ async function restoreSession(id, { push = false } = {}) {
   hidePopup(); closeHistory(); hideDeeper();
   $('#empty').hidden = true; $('#main-stop').hidden = true;
   article.replaceChildren(); notesList.replaceChildren(); resetFollowup();
-  state = { docMd: s.sections.join('\n\n---\n\n'), sections: [...s.sections], title: s.title || '', notes: [], elabs: [], input: s.input || '',
+  state = { docMd: s.sections.join('\n\n---\n\n'), sections: [...s.sections],
+    writers: (Array.isArray(s.writers) ? s.writers : []).map(w => w && typeof w.model === 'string' ? { model: w.model, via: String(w.via || '') } : null),
+    title: s.title || '', notes: [], elabs: [], input: s.input || '',
     level: LEVELS.includes(s.level) ? s.level : 'standard', sourceImages: Array.isArray(s.sourceImages) ? s.sourceImages : [],
     next: Array.isArray(s.next) ? s.next : [], refs: (Array.isArray(s.refs) ? s.refs : []).map((r, i) => ({ ...r, n: i + 1 })),
     showRefs: false, sid: s.id, created: s.created };
@@ -3523,7 +3636,8 @@ async function restoreSession(id, { push = false } = {}) {
       linkCitations(root, cites);
       const kids = [...root.childNodes];
       if (i) article.append(h('hr', { class: 'deeper-sep' }));
-      article.append(...kids);
+      const line = bylineFor(st.writers, i);
+      article.append(...kids, ...(line ? [line] : []));
       alignIds(kids, s.blocks?.[i] || []);
     }
     for (const e of Array.isArray(s.elabs) ? s.elabs : []) {
@@ -3644,7 +3758,7 @@ function startOver() {
   sideCtl?.abort(); sideCtl = null;
   hidePopup(); closeHistory(); closeExportMenu();
   if (lb.open) lb.close();
-  state = { docMd: '', sections: [], title: '', notes: [], elabs: [], input: '', level, sourceImages: [], next: [], refs: [], showRefs: false, sid: null };
+  state = { docMd: '', sections: [], writers: [], title: '', notes: [], elabs: [], input: '', level, sourceImages: [], next: [], refs: [], showRefs: false, sid: null };
   blockSeq = 0;
   article.replaceChildren(); notesList.replaceChildren();
   setStatus(null); $('#main-stop').hidden = true;
