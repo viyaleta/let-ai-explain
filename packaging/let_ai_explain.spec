@@ -21,7 +21,7 @@ a = Analysis(
     pathex=[str(ROOT)],
     datas=[(str(ROOT / "index.html"), "."), (str(ROOT / "manifest.webmanifest"), "."),
            (str(ROOT / "sw.js"), "."), (str(ROOT / "icons"), "icons")],
-    hiddenimports=["let_ai_explain"],
+    hiddenimports=["let_ai_explain", "lae_reader"],
     excludes=["tkinter", "unittest", "pydoc_data"],
     noarchive=False,
 )

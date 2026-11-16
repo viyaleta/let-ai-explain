@@ -9,13 +9,11 @@ installed (pip install "pyjwt[crypto]"), the ID token signature is also checked.
 """
 import base64
 import hashlib
-import ipaddress
 import json
 import os
 import re
 import secrets
 import shutil
-import socket
 import sys
 import threading
 import time
@@ -24,10 +22,10 @@ import urllib.parse
 import urllib.request
 import uuid
 import webbrowser
-from html import unescape as html_unescape
-from html.parser import HTMLParser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+
+from lae_reader import ReaderError, check_url, read_page  # page reader, shared with the hosted site
 
 APP_NAME = "Let AI Explain"  # sent as agent_name_hint; only affects new registrations
 AUTH_BASE = "https://auth.openai.com"
@@ -211,14 +209,8 @@ def b64url_decode(s):
     return base64.urlsafe_b64decode(s + "=" * (-len(s) % 4))
 
 
-class AppError(Exception):
-    def __init__(self, code, message="", status=400):
-        super().__init__(message or code)
-        self.code, self.message, self.status = code, message, status
-        self.retryable = False  # a passing upstream failure: the page may try again (free router)
-
-    def json(self):
-        return {"error": self.code, "message": self.message, **({"retryable": True} if self.retryable else {})}
+class AppError(ReaderError):
+    """An error the page shows. retryable marks a passing upstream failure (the free router)."""
 
 
 def post_form(url, fields):
@@ -744,177 +736,6 @@ def build_request(provider, model, instructions, text, images, max_tokens=16000,
     raise AppError("bad_provider", "Unknown provider.")
 
 
-# ---------------------------------------------------------------- page reader
-class TextExtractor(HTMLParser):
-    SKIP = {"script", "style", "noscript", "svg", "nav", "footer", "aside", "form", "button",
-            "iframe", "template", "select"}
-    BLOCK = {"p", "div", "section", "article", "br", "tr", "blockquote", "pre", "figcaption",
-             "dd", "dt", "table", "ul", "ol", "figure", "main"}
-
-    def __init__(self, base):
-        super().__init__(convert_charrefs=True)
-        self.base, self.parts, self.images = base, [], []
-        self.skip = self.math = 0
-        self.title, self.in_title, self.caption = "", False, None
-
-    def handle_starttag(self, tag, attrs):
-        a = dict(attrs)
-        if self.math:
-            self.math += tag == "math"
-            return
-        if tag in self.SKIP:
-            self.skip += 1
-            return
-        if self.skip:
-            return
-        if tag == "title":
-            self.in_title = True
-        elif tag == "math":
-            alt = (a.get("alttext") or "").strip()
-            if alt:
-                self.parts.append(f"\n$${alt}$$\n" if a.get("display") == "block" else f" ${alt}$ ")
-            self.math = 1
-        elif tag in ("h1", "h2", "h3", "h4"):
-            self.parts.append("\n\n" + "#" * int(tag[1]) + " ")
-        elif tag == "li":
-            self.parts.append("\n- ")
-        elif tag in self.BLOCK:
-            self.parts.append("\n")
-        if tag == "img" and len(self.images) < 10:
-            src = urllib.parse.urljoin(self.base, a.get("src") or "")
-            alt = (a.get("alt") or "").strip()
-            w = a.get("width") or ""
-            small = w.isdigit() and int(w) < 120
-            if src.startswith("https://") and not small and not re.search(r"logo|icon|sprite|avatar|badge|pixel", src, re.I):
-                self.images.append({"src": src, "caption": alt[:160]})
-
-    def handle_endtag(self, tag):
-        if self.math:
-            self.math -= tag == "math"
-            return
-        if tag in self.SKIP:
-            self.skip = max(0, self.skip - 1)
-            return
-        if tag == "title":
-            self.in_title = False
-        elif tag in self.BLOCK or tag in ("h1", "h2", "h3", "h4", "li"):
-            self.parts.append("\n")
-
-    def handle_data(self, data):
-        if self.math or self.skip:
-            return
-        if self.in_title:
-            self.title += data
-        else:
-            self.parts.append(data)
-
-    def text(self):
-        raw = "".join(self.parts)
-        lines = [re.sub(r"[ \t\u00a0]+", " ", ln).strip() for ln in raw.splitlines()]
-        out = re.sub(r"\n{3,}", "\n\n", "\n".join(lines)).strip()
-        return out
-
-
-def public_url(url):
-    p = urllib.parse.urlparse(url)
-    if p.scheme not in ("http", "https") or not p.hostname:
-        return False
-    try:
-        infos = socket.getaddrinfo(p.hostname, None)
-    except socket.gaierror:
-        return False
-    for info in infos:
-        ip = ipaddress.ip_address(info[4][0].split("%")[0])
-        if ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved or ip.is_multicast:
-            return False
-    return True
-
-
-def http_get(url, limit=6_000_000):
-    req = urllib.request.Request(url, headers={
-        "User-Agent": "Mozilla/5.0 (compatible; Let AI Explain local reader)",
-        "Accept": "text/html,application/xhtml+xml;q=0.9,text/plain;q=0.8,*/*;q=0.3"})
-    with urllib.request.urlopen(req, timeout=25) as r:
-        body = r.read(limit)
-        return r.geturl(), r.headers.get("Content-Type", ""), body, r.headers.get_content_charset() or "utf-8"
-
-
-def read_page(url):
-    if not public_url(url):
-        raise AppError("bad_url", "That link can't be read.")
-    candidates = [url]
-    m = re.match(r"^https?://(?:www\.)?arxiv\.org/(?:abs|pdf|html)/([^?#]+?)(?:\.pdf)?/?$", url)
-    if m:  # arXiv: the HTML rendering has full text and figures; fall back to the abstract page
-        candidates = [f"https://arxiv.org/html/{m.group(1)}", f"https://arxiv.org/abs/{m.group(1)}"]
-    last = None
-    for cand in candidates:
-        try:
-            final, ctype, body, charset = http_get(cand)
-        except (urllib.error.URLError, OSError) as e:
-            last = e
-            continue
-        if not public_url(final):
-            raise AppError("bad_url", "That link redirected somewhere that can't be read.")
-        if "pdf" in ctype:
-            last = AppError("unsupported_type", "PDF files can't be read yet. Paste the text instead.")
-            continue
-        html = body.decode(charset, "replace")
-        if "text/plain" in ctype:
-            return {"url": final, "title": "", "text": html[:60000], "images": []}
-        ex = TextExtractor(final)
-        ex.feed(html)
-        text = ex.text()
-        if len(text) < 200:
-            last = AppError("empty_page", "That page had almost no readable text. It may need a browser to load.")
-            continue
-        return {"url": final, "title": ex.title.strip(), "text": text[:60000], "images": ex.images[:8]}
-    if isinstance(last, AppError):
-        raise last
-    raise AppError("fetch_failed", f"Couldn't load that page{': ' + str(getattr(last, 'reason', last)) if last else ''}.", 502)
-
-
-class PublicRedirects(urllib.request.HTTPRedirectHandler):
-    """Follow redirects only while they stay on public hosts."""
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        if not public_url(newurl):
-            raise AppError("bad_url", "That link redirected somewhere that can't be checked.")
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
-CHECK_OPENER = urllib.request.build_opener(PublicRedirects)
-
-
-def check_url(url):
-    """Does a cited web page exist? Returns its status, final URL and <title> (reads at most ~1MB)."""
-    if not public_url(url):
-        raise AppError("bad_url", "That link can't be checked.")
-    req = urllib.request.Request(url, headers={
-        "User-Agent": "Mozilla/5.0 (compatible; Let AI Explain reference check)",
-        "Accept": "text/html,application/xhtml+xml;q=0.9,*/*;q=0.5"})
-    try:
-        with CHECK_OPENER.open(req, timeout=10) as r:
-            final, status = r.geturl(), r.status
-            ctype = r.headers.get("Content-Type", "")
-            charset = r.headers.get_content_charset() or "utf-8"
-            body = r.read(1_000_000)
-    except urllib.error.HTTPError as e:
-        return {"ok": False, "status": e.code, "final_url": e.geturl() or url, "title": ""}
-    except (urllib.error.URLError, OSError, ValueError) as e:
-        return {"ok": False, "status": 0, "final_url": url, "title": "",
-                "message": str(getattr(e, "reason", e))[:200]}
-    if not public_url(final):
-        raise AppError("bad_url", "That link redirected somewhere that can't be checked.")
-    title = ""
-    m = re.search(rb"<title[^>]*>(.*?)</title>", body, re.I | re.S) if "html" in ctype or not ctype else None
-    if m:
-        try:
-            raw = m.group(1).decode(charset, "replace")
-        except LookupError:
-            raw = m.group(1).decode("utf-8", "replace")
-        title = html_unescape(re.sub(r"\s+", " ", raw)).strip()[:300]
-    return {"ok": status == 200, "status": status, "final_url": final, "title": title}
-
-
 # ---------------------------------------------------------------- HTTP server
 class Handler(BaseHTTPRequestHandler):
     server_version = "let-ai-explain"
@@ -1016,7 +837,7 @@ class Handler(BaseHTTPRequestHandler):
                 target = (urllib.parse.parse_qs(url.query).get("url") or [""])[0]
                 return self.send_json(200, check_url(target))
             self.send_json(404, {"error": "not_found"})
-        except AppError as e:
+        except ReaderError as e:
             self.send_json(e.status, e.json())
         except Exception as e:
             self.send_json(502, {"error": "server_error", "message": f"{type(e).__name__}: {e}"})
@@ -1039,7 +860,7 @@ class Handler(BaseHTTPRequestHandler):
             if path.startswith("/api/desktop/") and DESKTOP is not None:
                 return self.api_desktop(path.rsplit("/", 1)[1], self.read_body())
             self.send_json(404, {"error": "not_found"})
-        except AppError as e:
+        except ReaderError as e:
             self.send_json(e.status, e.json())
         except Exception as e:
             self.send_json(502, {"error": "server_error", "message": f"{type(e).__name__}: {e}"})
@@ -1068,7 +889,7 @@ class Handler(BaseHTTPRequestHandler):
                     write_private(PREFS_FILE, prefs)
                 return self.send_json(200, prefs)
             self.send_json(404, {"error": "not_found"})
-        except AppError as e:
+        except ReaderError as e:
             self.send_json(e.status, e.json())
         except Exception as e:
             self.send_json(500, {"error": "server_error", "message": f"{type(e).__name__}: {e}"})
@@ -1088,7 +909,7 @@ class Handler(BaseHTTPRequestHandler):
                     history_path(path[len("/api/history/"):]).unlink(missing_ok=True)
                 return self.send_json(200, {"sessions": history_list()})
             self.send_json(404, {"error": "not_found"})
-        except AppError as e:
+        except ReaderError as e:
             self.send_json(e.status, e.json())
         except Exception as e:
             self.send_json(500, {"error": "server_error", "message": f"{type(e).__name__}: {e}"})
