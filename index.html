@@ -147,6 +147,8 @@ main{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr);min-height:c
 #status[hidden]{display:none}
 #status .pulse{flex:none;width:.5rem;height:.5rem;border-radius:50%;background:var(--accent);animation:pulse 1.2s ease-in-out infinite}
 #status.error{color:var(--err)}
+.err-link{color:inherit;text-decoration:underline;text-decoration-thickness:1px;text-underline-offset:.15em;cursor:pointer}
+.err-link:hover{text-decoration-thickness:2px}
 #status.error .pulse{display:none}
 .stop-btn{margin-left:auto;flex:none;border:1px solid var(--rule);background:var(--surface);border-radius:999px;padding:.2rem .75rem;font-family:var(--sans);font-size:.8rem;color:var(--muted)}
 .stop-btn:hover{color:var(--err);border-color:var(--err)}
@@ -1356,6 +1358,25 @@ const COPY = {
   no_model: 'Choose a model in the account menu first.',
   upstream_unreachable: () => `Couldn’t reach ${session.provider === 'chatgpt' ? 'OpenAI' : provName()}. Check your internet connection.`
 };
+// Failures where another model may well work (busy, quota or rate limit, unknown model, a model's
+// own error) end with a link to the model picker. Key, sign-in and network errors don't.
+const MODEL_ERRORS = new Set(['provider_busy', 'rate_limited', 'out_of_credits', 'model_not_found', 'model_error',
+  'images_unsupported', 'free_busy', 'free_too_slow', 'subscription_sharing_unsupported_capability']);
+const isModelError = e => MODEL_ERRORS.has(e?.code) || (e?.code === 'http_503' && session.provider !== 'chatgpt');
+function openModelPicker(ev) {
+  ev?.preventDefault();
+  renderAccount();
+  if (!$('#acct').open) $('#acct').showModal();
+  const sel = $('#model');
+  if (sel.offsetParent) sel.focus();
+}
+// The message as nodes to show: friendlyError's text, plus the model hint where it applies.
+function errorContent(e, fallback = '') {
+  const msg = friendlyError(e) || fallback;
+  if (!msg) return [];
+  if (!isModelError(e)) return [msg];
+  return [msg.trimEnd() + ' If this keeps happening, ', h('a', { href: '#', class: 'err-link', onclick: openModelPicker }, 'try a different model'), '.'];
+}
 function friendlyError(e) {
   if (e?.name === 'AbortError') return null;
   if (e instanceof TypeError && /fetch|network|load failed/i.test(e.message || ''))
@@ -2633,7 +2654,7 @@ function bylineFor(writers, i) {
 function setStatus(msg, isError = false) {
   if (!msg) { statusEl.hidden = true; return; }
   statusEl.hidden = false; statusEl.classList.toggle('error', isError);
-  $('#status-text').textContent = msg;
+  $('#status-text').replaceChildren(...[].concat(msg));
 }
 
 /* ---------------- Main explanation ---------------- */
@@ -2716,8 +2737,8 @@ async function explain(input) {
     saveSession();
   } catch (e) {
     if (my !== reqSeq) return;
-    const msg = friendlyError(e);
-    if (msg) setStatus(msg, true); else setStatus(null);
+    const msg = errorContent(e);
+    if (msg.length) setStatus(msg, true); else setStatus(null);
     if (e?.name === 'AbortError' && !article.childElementCount) $('#empty').hidden = false;
   } finally {
     if (my === reqSeq) $('#main-stop').hidden = true;
@@ -2742,7 +2763,7 @@ function hideDeeper() { $('#deeper').hidden = true; }
 function deeperStatus(msg, isError = false) {
   const el = $('#deeper-status');
   el.hidden = false; el.classList.toggle('error', isError);
-  $('#deeper-text').textContent = msg;
+  $('#deeper-text').replaceChildren(...[].concat(msg));
   $('#deeper-stop').hidden = isError;
 }
 $('#deeper-go').addEventListener('click', () => goDeeper(null));
@@ -2797,8 +2818,8 @@ async function goDeeper(direction) {
   } catch (e) {
     if (my !== reqSeq || state !== st) return;
     renderDeeper(st.next);
-    const msg = friendlyError(e);
-    if (msg) deeperStatus(msg, true);
+    const msg = errorContent(e);
+    if (msg.length) deeperStatus(msg, true);
   } finally {
     if (deepCtl === ctl) deepCtl = null;
   }
@@ -2977,7 +2998,7 @@ async function addNote(p, question, mode = question ? 'ask' : 'explain') {
     pushNote(st, { quote: p.text, question, answer: md, blockId, node: ab });
     if (st === state) scheduleSave();
   } catch (e) {
-    ab.classList.add('err'); ab.replaceChildren(friendlyError(e) || 'Stopped.');
+    ab.classList.add('err'); ab.replaceChildren(...errorContent(e, 'Stopped.'));
   }
   note.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
@@ -3017,7 +3038,7 @@ async function visualizeNote(p) {
       if (st === state) scheduleSave();
     }
   } catch (e) {
-    ab.classList.remove('wide'); ab.classList.add('err'); ab.replaceChildren(friendlyError(e) || 'Stopped.');
+    ab.classList.remove('wide'); ab.classList.add('err'); ab.replaceChildren(...errorContent(e, 'Stopped.'));
   }
   note.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
 }
@@ -3057,7 +3078,7 @@ async function askFollowup(question) {
     pushNote(st, { quote: null, question, answer: md, blockId: null, node: ab });
     if (st === state) scheduleSave();
   } catch (e) {
-    ab.classList.add('err'); ab.replaceChildren(friendlyError(e) || 'Stopped.');
+    ab.classList.add('err'); ab.replaceChildren(...errorContent(e, 'Stopped.'));
     pushNote(st, { quote: null, question, answer: '(No answer: the request failed.)', blockId: null, node: ab, failed: true });
   } finally {
     fuBusy = false; syncFollowup();
@@ -3093,7 +3114,7 @@ async function elaborate(p) {
     assignBlockIds();
     if (after && box.isConnected) { st.elabs.push({ after, quote: p.text, md, box }); if (st === state) scheduleSave(); }
   } catch (e) {
-    body.replaceChildren(h('p', { class: 'err', text: friendlyError(e) || 'Stopped.' }));
+    body.replaceChildren(h('p', { class: 'err' }, ...errorContent(e, 'Stopped.')));
   }
 }
 
