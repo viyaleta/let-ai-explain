@@ -2,7 +2,11 @@
 
 **Type a topic, paste a link, or drop in some text, and get an explanation that actually makes sense.** Then highlight anything you don't get and ask about it, right in the margin.
 
-Let AI Explain runs on your own computer and uses an AI account you already have: your **ChatGPT plan**, an **OpenRouter** account, or your own **API key** from OpenAI, Anthropic or Google.
+**[Try it online at letaiexplain.com](https://letaiexplain.com)** · [Download for Mac or Windows](https://github.com/viyaleta/let-ai-explain/releases/latest)
+
+<img src="docs/screenshot.png" width="1600" alt="Let AI Explain: an explanation on the left with margin notes on the right">
+
+Works with your ChatGPT plan (desktop app), an OpenRouter account, or your own API key.
 
 ---
 
@@ -26,6 +30,10 @@ All versions are on the [Releases page](https://github.com/viyaleta/let-ai-expla
 The app opens in its own window. Sign-in pages and links open in your usual browser; when you finish signing in there, come back to the app window and it updates by itself. To quit, close the window.
 
 > On Windows, the app window uses Microsoft Edge WebView2, which comes with Windows 11 and most Windows 10 PCs. If it's missing, the installer offers to open Microsoft's download page.
+
+### Use it online
+
+Open **[letaiexplain.com](https://letaiexplain.com)** in any modern browser. Nothing to install: sign in with OpenRouter or paste an API key from OpenAI, Anthropic or Google. Your keys and history stay in your browser. (Using your ChatGPT plan needs the desktop app.)
 
 ### Run from source
 
