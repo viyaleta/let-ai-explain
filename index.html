@@ -435,17 +435,20 @@ main[hidden],#gate[hidden],.gate-btn[hidden],.gate-msg[hidden]{display:none}
 .gate-close{position:absolute;top:1rem;right:16px}
 .gate-close[hidden]{display:none}
 .gate-box{--opt-h:3.25rem;--opt-r:12px;margin:auto 0;width:100%;max-width:22rem;display:flex;flex-direction:column;align-items:stretch;gap:1.5rem;text-align:center}
-.gate-copy{margin:0;font-size:1.2rem;line-height:1.5;color:var(--muted);text-wrap:balance}
+.gate-title{margin:0;font-family:var(--serif);font-weight:500;font-size:1.75rem;line-height:1.2;color:var(--ink);letter-spacing:-.01em}
+.gate-sub{margin:0;font-family:var(--sans);font-size:.88rem;line-height:1.5;color:var(--muted);text-wrap:balance}
 .gate-opts{display:flex;flex-direction:column;gap:.6rem;font-family:var(--sans)}
 .gate-alt{display:flex;flex-direction:column;gap:.6rem}
 .gate-alt[hidden],.key-form[hidden],.gate-saved[hidden],.gate-link[hidden]{display:none}
-.gate-or[hidden],.key-note[hidden],.keep-row[hidden],.gate-now[hidden],.gate-line[hidden],#gate-app[hidden],#gate-foot[hidden]{display:none}
+.gate-or[hidden],.key-note[hidden],.keep-row[hidden],.gate-sub[hidden],.gate-keep[hidden],.gate-line[hidden],#gate-app[hidden],#gate-foot[hidden]{display:none}
 .keep-row{display:flex;align-items:center;gap:.5rem;font-size:.85rem;color:var(--ink);cursor:pointer}
 .keep-row input{width:1rem;height:1rem;margin:0;accent-color:var(--accent)}
 .keep-small{font-family:var(--sans);font-size:.8rem;color:var(--muted);text-align:left}
-#or-keep{margin:-.15rem 0 .1rem .25rem}
-.gate-head{display:flex;flex-direction:column;gap:.35rem}
-.gate-now{margin:0;font-family:var(--sans);font-size:.82rem;color:var(--muted)}
+.gate-head{display:flex;flex-direction:column;gap:.45rem}
+.gate-keep{display:flex;flex-direction:column;gap:.3rem;margin-top:.35rem;padding:0 .25rem;text-align:left}
+.gate-keep .key-note{color:var(--faint)}
+.gate-keep .privacy-link{color:var(--muted)}
+.gate-keep .privacy-link:hover{color:var(--ink)}
 .gate-now-link{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;text-decoration:underline;text-underline-offset:.2em}
 .gate-now-link:hover{color:var(--ink)}
 .gate-line{margin:0;align-self:center;width:max-content;max-width:calc(100vw - 32px);font-family:var(--sans);font-size:.8rem;line-height:1.5;color:var(--faint)}
@@ -547,8 +550,9 @@ main[hidden],#gate[hidden],.gate-btn[hidden],.gate-msg[hidden]{display:none}
   </button>
   <div class="gate-box">
     <div class="gate-head">
-      <p class="gate-copy" id="gate-copy"></p>
-      <p class="gate-now" id="gate-now" hidden>Now: <span id="gate-now-name"></span> · <button type="button" class="gate-now-link" id="gate-disconnect">Disconnect</button></p>
+      <h1 class="gate-title" id="gate-title"></h1>
+      <p class="gate-sub" id="gate-sub"></p>
+      <p class="gate-sub" id="gate-now" hidden>Now: <span id="gate-now-name"></span> · <button type="button" class="gate-now-link" id="gate-disconnect">Disconnect</button></p>
     </div>
     <div class="gate-opts">
       <!-- OpenAI's approved "Continue with ChatGPT" format: official ChatGPT logo, white on black (black on white in dark mode). -->
@@ -562,7 +566,6 @@ main[hidden],#gate[hidden],.gate-btn[hidden],.gate-msg[hidden]{display:none}
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="5" cy="12" r="2"/><path d="M7 12h3c2 0 3-1.5 4-3l1-1.5c.6-.9 1.4-1.5 2.5-1.5H21"/><path d="M10 12c2 0 3 1.5 4 3l1 1.5c.6.9 1.4 1.5 2.5 1.5H21"/><path d="m18.5 4 2.5 2.5L18.5 9M18.5 15.5 21 18l-2.5 2.5"/></svg>
           <span class="opt-text"><span class="opt-label">Sign in with OpenRouter</span><span class="opt-sub">Claude, GPT, Gemini and free models</span></span>
         </a>
-        <label class="keep-row keep-small" id="or-keep" hidden><input type="checkbox" id="keep-or"> Remember on this device</label>
         <div class="key-group">
           <button type="button" class="gate-btn" id="key-toggle" aria-expanded="false" aria-controls="key-form">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="8" cy="15" r="4"/><path d="m10.85 12.15 8.65-8.65M16 7l2.5 2.5M18.5 4.5l2 2"/></svg>
@@ -591,16 +594,18 @@ main[hidden],#gate[hidden],.gate-btn[hidden],.gate-msg[hidden]{display:none}
                   <input id="key-input" type="password" autocomplete="off" spellcheck="false" required>
                 </div>
                 <p class="msg bad" id="key-msg" role="alert"></p>
-                <label class="keep-row keep-small" id="key-keep" hidden><input type="checkbox" id="keep-key"> Remember on this device</label>
                 <button class="btn" type="submit" id="key-save">Save</button>
                 <p class="key-note" id="key-local-note">The key is checked with the provider, then stored only on this computer.</p>
-                <p class="key-note" id="hosted-note" hidden></p>
                 <button type="button" class="gate-link" id="key-cancel">Cancel</button>
               </div>
             </form>
           </div>
         </div>
         <div class="gate-saved" id="gate-saved" hidden></div>
+        <div class="gate-keep" id="gate-keep" hidden>
+          <label class="keep-row keep-small"><input type="checkbox" id="keep-key"> Remember on this device</label>
+          <p class="key-note">Your key stays in this browser and goes only to the AI provider. <button type="button" class="privacy-link">Privacy</button></p>
+        </div>
       </div>
     </div>
     <p class="gate-line" id="gate-line"><span id="gate-app" hidden>Have ChatGPT Plus? <a href="https://github.com/viyaleta/let-ai-explain/releases/latest" target="_blank" rel="noopener">Download the app</a> · </span><a href="https://github.com/viyaleta/let-ai-explain" target="_blank" rel="noopener">Open source on GitHub</a></p>
@@ -967,12 +972,13 @@ async function loadModels() {
 }
 // Centered screen shown instead of the panes when the app can't be used yet.
 const GATE = {
-  hsignin: { copy: 'Connect an AI to start.', alt: true, hosted: true },
-  hswitch: { copy: 'Switch connection', alt: true, hosted: true, switching: true },
-  offline: { copy: 'Can’t reach the Let AI Explain server. Start it with: python3 let_ai_explain.py' },
-  signin: { copy: 'Connect an AI to start.', label: 'Continue with ChatGPT', href: '/auth/start', alt: true },
-  switch: { copy: 'Switch connection', label: 'Continue with ChatGPT', href: '/auth/start', alt: true, switching: true },
-  noplan: { copy: 'You’re signed in, but ChatGPT plan usage wasn’t allowed. Allow it to start explaining things, or connect another way.',
+  hsignin: { title: 'Connect your AI', sub: 'Let AI Explain runs on your own AI account. Pick one; you can switch anytime.', alt: true, hosted: true },
+  hswitch: { title: 'Switch connection', alt: true, hosted: true, switching: true },
+  offline: { title: 'Can’t reach Let AI Explain', sub: 'Start the server with: python3 let_ai_explain.py' },
+  signin: { title: 'Connect your AI', sub: 'Let AI Explain runs on your own AI account: your ChatGPT plan, OpenRouter or an API key.',
+    label: 'Continue with ChatGPT', href: '/auth/start', alt: true },
+  switch: { title: 'Switch connection', label: 'Continue with ChatGPT', href: '/auth/start', alt: true, switching: true },
+  noplan: { title: 'Connect your AI', sub: 'You’re signed in, but ChatGPT plan usage wasn’t allowed. Allow it to start explaining things, or connect another way.',
     label: 'Allow ChatGPT plan usage', href: '/auth/start?reconsent=1', alt: true }
 };
 let gateMsg = '', gateInfo = false, sessionReady = Promise.resolve();
@@ -986,16 +992,16 @@ function renderGate() {
   placeSupport();
   if (!g) return;
   $('#popup').hidden = true;
-  $('#gate-copy').textContent = g.copy;
+  $('#gate-title').textContent = g.title;
+  $('#gate-sub').textContent = g.sub || ''; $('#gate-sub').hidden = !g.sub;
   const btn = $('#gate-btn');
   btn.hidden = !g.href;
   if (g.href) { $('#gate-btn-label').textContent = g.label; btn.setAttribute('href', g.href); }
   $('#gate-alt').hidden = !g.alt;
   // Hosted: no ChatGPT sign-in (that's the desktop app); keys stay in this browser, remembered on request.
   $('#gate-or').hidden = !!g.hosted;
-  $('#or-keep').hidden = $('#key-keep').hidden = $('#hosted-note').hidden = !g.hosted;
+  $('#gate-keep').hidden = !g.hosted; // one "Remember" for OpenRouter sign-in or a key; it keeps its state
   $('#key-local-note').hidden = !!g.hosted;
-  syncKeyNote();
   // Switching: the title, what's connected now, the options and the ×; nothing else.
   $('#gate-now').hidden = !g.switching || !session.connected;
   $('#gate-now-name').textContent = connectionLabel();
@@ -1011,11 +1017,6 @@ function renderGate() {
   $('#gate-msg').textContent = msg; $('#gate-msg').hidden = !msg;
   $('#gate-msg').classList.toggle('info', gateInfo);
 }
-// Hosted, in the key panel: "Your key stays in this browser and is sent only to <the chosen provider>."
-function syncKeyNote() {
-  const name = $('#key-provider').value === 'gemini' ? 'Google' : $('#key-provider').selectedOptions[0].textContent;
-  $('#hosted-note').textContent = `Your key stays in this browser and is sent only to ${name}. Use a key with a spending limit; you can revoke it anytime.`;
-}
 // Hosted: sign in with OpenRouter (OAuth PKCE). OpenRouter sends the browser back to this page
 // with ?code=…, which finishOpenRouterSignin() swaps for a key, in this tab.
 async function startOpenRouterSignin() {
@@ -1024,7 +1025,7 @@ async function startOpenRouterSignin() {
   try {
     const { verifier, challenge } = await PV.pkcePair();
     ssSet('or-verifier', verifier);
-    ssSet('or-remember', $('#keep-or').checked ? '1' : '');
+    ssSet('or-remember', $('#keep-key').checked ? '1' : '');
     location.href = PV.openrouterAuthUrl(location.origin + '/', challenge);
   } catch (e) { gateMsg = 'Couldn’t start the OpenRouter sign-in in this browser.'; renderGate(); console.warn(e); }
 }
@@ -1205,7 +1206,7 @@ const syncKeyLink = () => {
   $('#key-get').href = KEY_LINKS[v];
   for (const b of $$('#key-seg [role=radio]')) { const on = b.dataset.value === v; b.setAttribute('aria-checked', String(on)); b.tabIndex = on ? 0 : -1; }
 };
-$('#key-provider').addEventListener('change', () => { syncKeyLink(); syncKeyNote(); $('#key-msg').textContent = ''; });
+$('#key-provider').addEventListener('change', () => { syncKeyLink(); $('#key-msg').textContent = ''; });
 // Provider chips: a radio group that sets the hidden select.
 const pickProvider = b => { $('#key-provider').value = b.dataset.value; $('#key-provider').dispatchEvent(new Event('change')); };
 $('#key-seg').addEventListener('click', e => { const b = e.target.closest('[role=radio]'); if (b) pickProvider(b); });
