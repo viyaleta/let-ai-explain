@@ -393,7 +393,9 @@ main[hidden],#gate[hidden],.gate-btn[hidden],.gate-msg[hidden]{display:none}
 .gate-copy{margin:0;font-size:1.2rem;line-height:1.5;color:var(--muted);text-wrap:balance}
 .gate-opts{display:flex;flex-direction:column;gap:.6rem;font-family:var(--sans)}
 .gate-alt{display:flex;flex-direction:column;gap:.6rem}
-.gate-alt[hidden],.key-form[hidden],.gate-saved[hidden],.gate-link[hidden]{display:none}
+.gate-alt[hidden],.key-form[hidden],.gate-saved[hidden],.gate-link[hidden],.gate-hosted[hidden]{display:none}
+.gate-hosted{display:flex;flex-direction:column;align-items:stretch;gap:.6rem}
+.gate-hosted .btn{display:block;text-decoration:none;text-align:center;padding:.8rem 1rem}
 /* One option: icon, label, one-line subtitle */
 .gate-btn{box-sizing:border-box;width:100%;min-height:var(--opt-h);display:flex;align-items:center;gap:.8rem;padding:.5rem 1rem;
   border:1px solid var(--rule);border-radius:var(--opt-r);background:var(--surface);color:var(--ink);
@@ -538,6 +540,10 @@ main[hidden],#gate[hidden],.gate-btn[hidden],.gate-msg[hidden]{display:none}
         </div>
         <div class="gate-saved" id="gate-saved" hidden></div>
         <button type="button" class="gate-link" id="gate-cancel" hidden>Cancel</button>
+      </div>
+      <div class="gate-hosted" id="gate-hosted" hidden>
+        <a class="btn" href="https://github.com/viyaleta/let-ai-explain/releases/latest" target="_blank" rel="noopener">Download Let AI Explain</a>
+        <a class="gate-link" href="https://github.com/viyaleta/let-ai-explain#readme" target="_blank" rel="noopener">How to run it with Python</a>
       </div>
       <p class="oss-note"><svg class="oss-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d="M5.5 4 1.5 8l4 4M10.5 4l4 4-4 4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Let AI Explain is free and open source. See the code, report an issue, or fork it on <a href="https://github.com/viyaleta/let-ai-explain" target="_blank" rel="noopener">GitHub</a>.</span></p>
     </div>
@@ -702,7 +708,25 @@ async function redrawDiagrams() { for (const fig of $$('figure.diagram:not(.brok
 
 /* ---------------- Local server + ChatGPT session ---------------- */
 class AppError extends Error { constructor(code, message) { super(message || code); this.code = code; } }
-const api = (path, opts = {}) => fetch(path, { ...opts, headers: { 'X-Let-AI-Explain': '1', ...(opts.headers || {}) } });
+// Local mode: served by let_ai_explain.py (or the desktop app) on this computer. Anywhere else (a static
+// copy such as let-ai-explain.vercel.app) is hosted mode, where the local server's endpoints don't exist.
+const LOCAL_HOSTNAME = /^(127\.0\.0\.1|localhost|[a-z0-9-]+(\.[a-z0-9-]+)*\.localhost)$/i.test(location.hostname);
+let appMode = LOCAL_HOSTNAME ? 'checking' : 'hosted';
+// On a local address, the server must also confirm it (an older or different server doesn't).
+// A network error leaves local mode on, so the page can say the server isn't running.
+async function detectMode() {
+  if (!LOCAL_HOSTNAME) return (appMode = 'hosted');
+  try {
+    const r = await fetch('/api/config', { headers: { 'X-Let-AI-Explain': '1' }, cache: 'no-store' });
+    const j = r.ok ? await r.json().catch(() => ({})) : {};
+    appMode = j.mode === 'local' ? 'local' : 'hosted';
+  } catch { appMode = 'local'; }
+  return appMode;
+}
+// Every call to the local server (/api/*) goes through here, so hosted mode never sends one.
+const api = (path, opts = {}) => appMode === 'hosted'
+  ? Promise.reject(new AppError('hosted', 'This needs the Let AI Explain app on your computer.'))
+  : fetch(path, { ...opts, headers: { 'X-Let-AI-Explain': '1', ...(opts.headers || {}) } });
 async function apiError(r) {
   const j = await r.json().catch(() => ({}));
   return Object.assign(new AppError(j.error || 'http_' + r.status, j.message), { retryable: !!j.retryable });
@@ -761,6 +785,7 @@ async function loadModels() {
 }
 // Centered screen shown instead of the panes when the app can't be used yet.
 const GATE = {
+  hosted: { copy: 'Let AI Explain runs on your computer, so it can connect to your ChatGPT plan, OpenRouter account or API key without sending them anywhere else. Download the app, or run python3 let_ai_explain.py, to start explaining things.', hosted: true },
   offline: { copy: 'Can’t reach the Let AI Explain server. Start it with: python3 let_ai_explain.py' },
   signin: { copy: 'Connect an AI to start explaining things: your ChatGPT plan, an OpenRouter account, or your own API key.',
     label: 'Continue with ChatGPT', href: '/auth/start', alt: true },
@@ -770,7 +795,7 @@ const GATE = {
     label: 'Allow ChatGPT plan usage', href: '/auth/start?reconsent=1', alt: true }
 };
 let gateMsg = '', gateInfo = false, sessionReady = Promise.resolve();
-const gateMode = () => session.checkFailed ? null : session.offline ? 'offline' : switching ? 'switch'
+const gateMode = () => appMode === 'hosted' ? 'hosted' : session.checkFailed ? null : session.offline ? 'offline' : switching ? 'switch'
   : !session.connected ? 'signin' : !usable() ? 'noplan' : null;
 const savedConn = p => (session.saved || []).find(x => x.provider === p);
 function renderGate() {
@@ -784,6 +809,7 @@ function renderGate() {
   btn.hidden = !g.href;
   if (g.href) { $('#gate-btn-label').textContent = g.label; btn.setAttribute('href', g.href); }
   $('#gate-alt').hidden = !g.alt;
+  $('#gate-hosted').hidden = !g.hosted;
   $('#gate-cancel').hidden = $('#gate-close').hidden = mode !== 'switch';
   // Saved API keys can be used again without pasting them.
   const keys = (session.saved || []).filter(x => KEY_LINKS[x.provider]);
@@ -797,6 +823,7 @@ function renderGate() {
 // Remember what's in the search bar, then leave for the sign-in / consent flow.
 // In the desktop app, sign-in runs in the system browser; the window waits for the result.
 function startAuth(href) {
+  if (appMode === 'hosted') return; // sign-in (/auth/*) only exists in the local server
   const q = $('#q').value.trim();
   if (q) ssSet('pending', q); else ssDel('pending');
   if (!session.desktop) { location.href = href; return; }
@@ -3454,7 +3481,7 @@ function hInit() {
     try {
       hMeta = (await srv.list()).map(metaOf);
       hBackend = 'server';
-    } catch (e) { console.info('History is kept in this browser: the server has no history API.', e); }
+    } catch (e) { console.info('History is kept in this browser' + (appMode === 'hosted' ? '.' : ': the server has no history API.'), appMode === 'hosted' ? '' : e); }
     if (hBackend === 'server') {
       await moveLocalHistory();
       hMeta.sort(byNewest);
@@ -3835,6 +3862,14 @@ function registerServiceWorker() {
   }
   if (signin) history.replaceState(null, '', '/');
   // Main area stays empty (both <main> and #gate hidden) until this first check finishes.
+  if (await detectMode() === 'hosted') {
+    // No local server here: show how to get the app; history and theme stay in this browser.
+    renderAccount();
+    registerServiceWorker();
+    await hInit();
+    renderHistoryButton();
+    return;
+  }
   loadPrefs();
   sessionReady = refreshSession();
   await sessionReady;

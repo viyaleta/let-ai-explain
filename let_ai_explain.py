@@ -994,6 +994,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.openrouter_callback(urllib.parse.parse_qs(url.query))
             if not self.api_ok():
                 return self.send_json(403, {"error": "forbidden"})
+            if url.path == "/api/config":  # the page runs in local mode only when this says so
+                return self.send_json(200, {"mode": "local"})
             if url.path == "/api/session":
                 return self.api_session()
             if url.path == "/api/history":
