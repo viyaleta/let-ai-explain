@@ -2,8 +2,13 @@
 #   LetAIExplain-macOS.dmg, LetAIExplain-Windows.zip and LetAIExplain-Windows-Setup.exe
 #
 # Runs when you publish a release (Releases -> Draft a new release -> pick a tag like v1.0.0 -> Publish).
-# You can also run it by hand (Actions tab -> Build desktop apps -> Run workflow): give it an existing
-# release's tag to (re)upload the files there, or leave the tag empty to only get them as build artifacts.
+# GitHub runs the copy of this file that is in the commit the release's tag points at, so the tag must
+# point at a commit that already has this "release" trigger.
+#
+# You can also run it by hand (Actions tab -> Build desktop apps -> Run workflow) with a tag:
+#   - the tag exists: its code is built and the files go to its release (made if there isn't one yet)
+#   - the tag doesn't exist yet: the branch you ran it on is built, and the tag and release are made there
+# Files already on the release are replaced. Leave the tag empty to only build (files under the run's artifacts).
 #
 # Signing is OPTIONAL. Each signing step runs only if its repository secrets are set
 # (Settings -> Secrets and variables -> Actions); otherwise the builds are unsigned.
@@ -20,23 +25,54 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Upload to the release with this tag (e.g. v1.0.0). Leave empty to only build."
+        description: "Release tag to build and upload to, e.g. v1.0.0 (made if missing). Empty: only build."
         required: false
         default: ""
 
 permissions:
   contents: write
 
+# One run per tag at a time, so two runs can't upload over each other.
+concurrency:
+  group: release-${{ github.event.release.tag_name || inputs.tag || github.run_id }}
+
 env:
-  # The release's tag (empty for a manual run without one); the app version is the tag without "v".
-  RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
   # python.org's macOS installer is universal2 (Intel + Apple Silicon), which a universal app needs.
   MACOS_PYTHON: "3.13.12"
   WINDOWS_PYTHON: "3.13"
 
 jobs:
+  # Which tag to upload to, which commit to build, and the app version (the tag without "v").
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.r.outputs.tag }}
+      tag_exists: ${{ steps.r.outputs.tag_exists }}
+      ref: ${{ steps.r.outputs.ref }}
+      version: ${{ steps.r.outputs.version }}
+    steps:
+      - id: r
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.event.release.tag_name || inputs.tag }}
+        run: |
+          TAG="$(echo "$TAG" | xargs)"  # trim spaces
+          REF="$GITHUB_SHA"; EXISTS=false
+          if [ -n "$TAG" ]; then
+            if ! [[ "$TAG" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
+              echo "::error::\"$TAG\" isn't a usable tag name (letters, digits, dots, dashes, underscores)."; exit 1
+            fi
+            if SHA=$(gh api "repos/$GITHUB_REPOSITORY/commits/tags/$TAG" --jq .sha 2>/dev/null); then
+              REF="$SHA"; EXISTS=true
+            fi
+          fi
+          V="${TAG#v}"; [[ "$V" =~ ^[0-9]+(\.[0-9]+)*$ ]] || V="0.0.0"
+          echo "Tag: ${TAG:-(none, build only)} | exists: $EXISTS | building: $REF | version: $V"
+          { echo "tag=$TAG"; echo "tag_exists=$EXISTS"; echo "ref=$REF"; echo "version=$V"; } >> "$GITHUB_OUTPUT"
+
   macos:
-    runs-on: macos-14
+    needs: prepare
+    runs-on: macos-15
     env:
       MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
       MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -47,12 +83,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG || github.ref }}  # build the code the release points at
+          ref: ${{ needs.prepare.outputs.ref }}  # the code the tag points at
 
-      - name: Version from the release tag
-        run: |
-          V="${RELEASE_TAG#v}"; [[ "$V" =~ ^[0-9]+(\.[0-9]+)*$ ]] || V="0.0.0"
-          echo "APP_VERSION=$V" >> "$GITHUB_ENV"
+      - name: App version
+        run: echo "APP_VERSION=${{ needs.prepare.outputs.version }}" >> "$GITHUB_ENV"
 
       - name: Install universal2 Python from python.org
         run: |
@@ -116,6 +150,7 @@ jobs:
           if-no-files-found: error
 
   windows:
+    needs: prepare
     runs-on: windows-latest
     env:
       WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
@@ -126,13 +161,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG || github.ref }}  # build the code the release points at
+          ref: ${{ needs.prepare.outputs.ref }}  # the code the tag points at
 
-      - name: Version from the release tag
-        run: |
-          $v = $env:RELEASE_TAG -replace '^v', ''
-          if ($v -notmatch '^\d+(\.\d+)*$') { $v = '0.0.0' }
-          "APP_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+      - name: App version
+        run: '"APP_VERSION=${{ needs.prepare.outputs.version }}" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8'
 
       - uses: actions/setup-python@v5
         with:
@@ -190,21 +222,34 @@ jobs:
           if-no-files-found: error
 
   upload:
-    if: github.event.release.tag_name != '' || inputs.tag != ''
-    needs: [macos, windows]
+    if: needs.prepare.outputs.tag != ''
+    needs: [prepare, macos, windows]
     runs-on: ubuntu-latest
     env:
       GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ needs.prepare.outputs.tag }}
+      TAG_EXISTS: ${{ needs.prepare.outputs.tag_exists }}
+      REF: ${{ needs.prepare.outputs.ref }}
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: files
           merge-multiple: true
-      - name: Upload to the release
+      - name: Make the release if it doesn't exist yet
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists; updating its files."
+          elif [ "$TAG_EXISTS" = true ]; then
+            gh release create "$TAG" --verify-tag --title "$TAG" --generate-notes
+          else
+            gh release create "$TAG" --target "$REF" --title "$TAG" --generate-notes
+          fi
+      - name: Upload the files
         run: |
           ls -l files
           for f in LetAIExplain-macOS.dmg LetAIExplain-Windows.zip LetAIExplain-Windows-Setup.exe; do
             test -f "files/$f" || { echo "::error::$f was not built"; exit 1; }
           done
-          gh release upload "$RELEASE_TAG" files/LetAIExplain-macOS.dmg files/LetAIExplain-Windows.zip \
-            files/LetAIExplain-Windows-Setup.exe --repo "$GITHUB_REPOSITORY" --clobber
+          gh release upload "$TAG" files/LetAIExplain-macOS.dmg files/LetAIExplain-Windows.zip \
+            files/LetAIExplain-Windows-Setup.exe --clobber
